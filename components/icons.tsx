@@ -113,3 +113,6 @@ export const IconShoe = (p: SVGProps<SVGSVGElement>) => (
 export const IconBag = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M5 8h14l-1 12H6z" /><path d="M9 8V6.5a3 3 0 0 1 6 0V8" /></svg>
 );
+export const IconSparkle = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M12 3.5 13.8 10.2 20.5 12l-6.7 1.8L12 20.5l-1.8-6.7L3.5 12l6.7-1.8z" /><path d="M19 3.5v3M17.5 5h3" /></svg>
+);

@@ -88,7 +88,9 @@ export default function StylistPage() {
     return out;
   }, [items, prefs, mood, situation, season, wakeUp, topStyles, nonce]);
 
-  useEffect(() => window.scrollTo({ top: 0 }), []);
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, []);
 
   if (!ready) return <Loading />;
 

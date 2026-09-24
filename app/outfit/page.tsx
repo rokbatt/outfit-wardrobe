@@ -1,26 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  IconBack,
-  IconCheck,
-  IconChevronD,
-  IconChevronL,
-  IconChevronR,
-  IconLock,
-  IconMore,
-  IconMove,
-  IconPlus,
-  IconShuffle,
-  IconUnlock,
-} from "@/components/icons";
+import { IconBack, IconChevronD, IconLock, IconMore, IconPlus, IconShuffle, IconSparkle, IconUnlock } from "@/components/icons";
 import { ItemCard, ItemVisual } from "@/components/ItemVisual";
 import { OutfitBoard } from "@/components/OutfitBoard";
-import { OutfitRenderer } from "@/components/outfit/OutfitRenderer";
 import { Empty, Loading, Sheet } from "@/components/ui";
-import { canOpen, DEFAULT_PLACEMENT } from "@/lib/mannequin";
+import { bodyFromPrefs, presetFromPrefs } from "@/lib/avatar/body";
 import { todayISO, useStore } from "@/lib/store";
 import {
   bySlot,
@@ -34,21 +22,26 @@ import {
   type Selection,
 } from "@/lib/styling";
 import { currentSeason, OCCASIONS, SLOTS, STYLES } from "@/lib/taxonomy";
-import type { Body, Outfit, Placement, Preferences, RenderOptions, Slot, WardrobeItem } from "@/lib/types";
+import type { Body, Outfit, RenderOptions, Slot, WardrobeItem } from "@/lib/types";
+
+// WebGL only exists in the browser.
+const AvatarViewer = dynamic(() => import("@/components/three/AvatarViewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="relative h-full overflow-hidden rounded-lg bg-stage">
+      <div className="shimmer absolute inset-0" />
+    </div>
+  ),
+});
 
 const SLOT_KO: Record<Slot, string> = { outer: "아우터", top: "상의", bottom: "하의", shoes: "신발", acc: "액세서리" };
+const SLOT_EN: Record<Slot, string> = { outer: "OUTER", top: "TOP", bottom: "BOTTOM", shoes: "SHOES", acc: "ACC" };
 const ORDER: Slot[] = ["outer", "top", "bottom", "shoes", "acc"];
 const BODIES: { key: Body; ko: string }[] = [
   { key: "slim", ko: "SLIM" },
   { key: "standard", ko: "STANDARD" },
   { key: "relaxed", ko: "RELAXED" },
 ];
-
-function bodyFromPrefs(p: Preferences): Body {
-  if (p.body_type.some((b) => /큰 체격|상체 발달/.test(b))) return "relaxed";
-  if (p.body_type.includes("슬림")) return "slim";
-  return "standard";
-}
 
 const stripReasons = (g: ReturnType<typeof generateOutfit>): Selection | null => {
   if (!g) return null;
@@ -59,7 +52,7 @@ const stripReasons = (g: ReturnType<typeof generateOutfit>): Selection | null =>
 
 function Builder() {
   const router = useRouter();
-  const { ready, items, outfits, prefs, itemById, saveOutfit, updateOutfit, updateItem, wear, toast } = useStore();
+  const { ready, items, outfits, prefs, itemById, saveOutfit, updateOutfit, wear, toast } = useStore();
 
   const groups = useMemo(() => bySlot(items), [items]);
   const [sel, setSel] = useState<Selection>({});
@@ -67,16 +60,17 @@ function Builder() {
   const [locked, setLocked] = useState<Set<Slot>>(new Set());
   const [source, setSource] = useState<Outfit["source"]>("manual");
   const [loaded, setLoaded] = useState<Outfit | null>(null);
-  const [render, setRender] = useState<RenderOptions>({ tuck: false, openOuter: true, body: "standard" });
+  const [render, setRender] = useState<RenderOptions>({ body: "standard" });
   const [randomMode, setRandomMode] = useState<"smart" | "pure">("smart");
   const [modeMenu, setModeMenu] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [optsOpen, setOptsOpen] = useState(false);
   const [why, setWhy] = useState(false);
-  const [adjust, setAdjust] = useState(false);
-  const [draftPlacement, setDraftPlacement] = useState<Placement | null>(null);
   const initDone = useRef(false);
   const stripRef = useRef<HTMLDivElement>(null);
+
+  // Parametric avatar: preset (saved with the outfit) + the user's stature.
+  const bodyParams = useMemo(() => bodyFromPrefs(prefs, render.body ?? presetFromPrefs(prefs)), [prefs, render.body]);
 
   // Keep selected pieces in sync with store updates (e.g. a cutout finished in the background).
   useEffect(() => {
@@ -100,7 +94,7 @@ function Builder() {
     const q = new URLSearchParams(window.location.search);
     const oid = q.get("outfit");
     const withId = q.get("with");
-    const baseRender: RenderOptions = { tuck: false, openOuter: true, body: bodyFromPrefs(prefs) };
+    const baseRender: RenderOptions = { body: presetFromPrefs(prefs) };
     setRender(baseRender);
     if (oid) {
       const o = outfits.find((x) => x.id === oid);
@@ -113,6 +107,7 @@ function Builder() {
         setSel(s);
         setLoaded(o);
         setSource(o.source);
+        // keep any legacy render keys (tuck / openOuter) so re-saving doesn't drop them
         setRender({ ...baseRender, ...(o.render ?? {}) });
         return;
       }
@@ -136,7 +131,6 @@ function Builder() {
         setActive(slot);
         setLocked(new Set([slot]));
       }
-      if (q.get("adjust") && slot) setAdjust(true);
       setSource("random");
       return;
     }
@@ -200,6 +194,8 @@ function Builder() {
     }
   };
 
+  const tryOn = () => toast("AI TRY-ON은 다음 단계(Phase 6)에서 연결돼요");
+
   // Keep the selected card centred in the horizontal strip (without scrolling the page).
   useEffect(() => {
     const box = stripRef.current;
@@ -211,7 +207,7 @@ function Builder() {
   // Keyboard: ←/→ cycle · ↑/↓ slot · R random · L lock
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest("input,textarea,select") || saveOpen || optsOpen || adjust) return;
+      if ((e.target as HTMLElement)?.closest("input,textarea,select") || saveOpen || optsOpen) return;
       if (e.key === "ArrowRight") step(1);
       else if (e.key === "ArrowLeft") step(-1);
       else if (e.key === "ArrowDown") setActive(ORDER[Math.min(ORDER.length - 1, ORDER.indexOf(active) + 1)]);
@@ -224,45 +220,6 @@ function Builder() {
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   });
-
-  // Swipe on the stage cycles the active slot (disabled while adjusting).
-  const swipe = useRef<{ x: number; y: number } | null>(null);
-  const onStageDown = (e: React.PointerEvent) => {
-    if (!adjust) swipe.current = { x: e.clientX, y: e.clientY };
-  };
-  const onStageUp = (e: React.PointerEvent) => {
-    const s = swipe.current;
-    swipe.current = null;
-    if (!s) return;
-    const dx = e.clientX - s.x;
-    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(e.clientY - s.y) * 1.4) step(dx < 0 ? 1 : -1);
-  };
-
-  // ── manual fit ──
-  const startAdjust = () => {
-    if (!sel[active]) {
-      toast(`${SLOT_KO[active]}를 먼저 선택하세요`);
-      return;
-    }
-    setDraftPlacement(sel[active]!.placement ?? DEFAULT_PLACEMENT);
-    setAdjust(true);
-    setOptsOpen(false);
-  };
-  useEffect(() => {
-    if (adjust && sel[active]) setDraftPlacement(sel[active]!.placement ?? DEFAULT_PLACEMENT);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, adjust]);
-  const finishAdjust = async (save: boolean) => {
-    const it = sel[active];
-    if (save && it && draftPlacement) {
-      const p = draftPlacement;
-      const isDefault = p.x === 0 && p.y === 0 && p.scale === 1 && p.rotation === 0 && p.layer == null;
-      await updateItem(it.id, { placement: isDefault ? null : p });
-      toast("이 옷의 위치를 저장했어요 · 모든 코디에 적용");
-    }
-    setAdjust(false);
-    setDraftPlacement(null);
-  };
 
   const stats = useMemo(() => combinationStats(items), [items]);
   const tags = useMemo(() => outfitTags(sel), [sel]);
@@ -278,7 +235,7 @@ function Builder() {
         <h1 className="display mb-5 text-[20px]">OUTFIT BUILDER</h1>
         <Empty
           title="조합할 옷이 부족해요"
-          body="상의와 하의를 한 벌씩만 등록해도 마네킹에 입혀볼 수 있어요."
+          body="상의와 하의를 한 벌씩만 등록해도 3D 아바타로 코디를 시작할 수 있어요."
           action={
             <Link href="/add" className="btn btn-dark">
               <IconPlus width={16} height={16} /> 옷 추가
@@ -289,147 +246,52 @@ function Builder() {
     );
 
   const activeLabel = SLOT_KO[active];
-  const placementOverride = adjust && draftPlacement ? { slot: active, placement: draftPlacement } : null;
 
   /* ─────────── pieces ─────────── */
 
-  const stage = (
-    <div
-      className="relative flex h-[min(50dvh,470px)] min-h-[340px] items-center justify-center overflow-hidden rounded-lg bg-stage lg:h-[min(76dvh,720px)]"
-      onPointerDown={onStageDown}
-      onPointerUp={onStageUp}
-    >
-      <OutfitRenderer
-        sel={sel}
-        render={render}
-        className="h-[94%] -translate-x-[18px] touch-pan-y lg:-translate-x-[26px]"
-        activeSlot={active}
-        adjust={adjust}
-        placementOverride={placementOverride}
-        onPlacementChange={(_, p) => setDraftPlacement(p)}
-        onLayerClick={adjust ? undefined : (s) => setActive(s)}
-      />
-
-      {!adjust && (
-        <>
-          <button
-            aria-label="이전 옷"
-            onClick={() => step(-1)}
-            className="absolute left-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full border border-line bg-paper shadow-sm active:scale-95"
-          >
-            <IconChevronL width={18} height={18} />
-          </button>
-          <button
-            aria-label="다음 옷"
-            onClick={() => step(1)}
-            className="absolute right-[64px] top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full border border-line bg-paper shadow-sm active:scale-95 lg:right-[76px]"
-          >
-            <IconChevronR width={18} height={18} />
-          </button>
-        </>
-      )}
-
-      {/* worn-items rail */}
-      <div className="absolute right-2 top-2 flex flex-col gap-1.5 lg:right-3 lg:top-3">
-        {ORDER.map((s) => {
-          const it = sel[s];
-          const on = active === s;
-          return (
-            <button
-              key={s}
-              aria-label={SLOT_KO[s]}
-              onClick={() => setActive(s)}
-              className={`relative grid h-[46px] w-[46px] place-items-center rounded-md border bg-paper p-1 transition lg:h-[54px] lg:w-[54px] ${
-                on ? "border-ink" : "border-line"
-              }`}
-            >
-              {it ? <ItemVisual item={it} /> : <span className="text-[9px] font-semibold text-mute/70">{SLOT_KO[s]}</span>}
-              {locked.has(s) && (
-                <span className="absolute -left-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-ink text-paper">
-                  <IconLock width={9} height={9} strokeWidth={2.2} />
-                </span>
-              )}
-            </button>
-          );
-        })}
-        <Link
-          href={`/add?category=${SLOTS.find((x) => x.key === active)!.category}`}
-          aria-label="옷 추가"
-          className="grid h-[46px] w-[46px] place-items-center rounded-md border border-dashed border-line-2 bg-paper/60 text-mute lg:h-[54px] lg:w-[54px]"
+  // The look, as labels over the 3D stage: [BLACK TEE] [BEIGE PANTS] …
+  const lookOverlay = (
+    <div className="pointer-events-none absolute left-2.5 top-2.5 flex max-w-[62%] flex-col items-start gap-1 lg:left-3 lg:top-3">
+      {ORDER.filter((s) => sel[s]).map((s) => (
+        <button
+          key={s}
+          onClick={() => setActive(s)}
+          className={`pointer-events-auto flex max-w-full items-center gap-1.5 rounded border bg-paper/90 px-2 py-1 text-left shadow-sm backdrop-blur transition ${
+            active === s ? "border-ink" : "border-line"
+          }`}
         >
-          <IconPlus width={18} height={18} />
-        </Link>
-      </div>
-
-      {/* adjust panel */}
-      {adjust && draftPlacement && (
-        <div className="absolute inset-x-2 bottom-2 rounded-md border border-line bg-paper/95 p-3 shadow-sm backdrop-blur lg:inset-x-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-[12px] font-bold">
-              {activeLabel} 위치 조정 <span className="font-normal text-mute">· 마네킹 위 옷을 드래그</span>
-            </p>
-            <button className="text-[12px] text-mute underline" onClick={() => setDraftPlacement(DEFAULT_PLACEMENT)}>
-              초기화
-            </button>
-          </div>
-          <label className="flex items-center gap-3 text-[11px] text-mute">
-            <span className="w-8">크기</span>
-            <input
-              type="range"
-              min={0.5}
-              max={1.8}
-              step={0.01}
-              value={draftPlacement.scale}
-              onChange={(e) => setDraftPlacement({ ...draftPlacement, scale: +e.target.value })}
-              className="flex-1 accent-ink"
-            />
-            <span className="w-9 text-right tabular-nums text-ink">{Math.round(draftPlacement.scale * 100)}%</span>
-          </label>
-          <label className="mt-1 flex items-center gap-3 text-[11px] text-mute">
-            <span className="w-8">회전</span>
-            <input
-              type="range"
-              min={-30}
-              max={30}
-              step={0.5}
-              value={draftPlacement.rotation}
-              onChange={(e) => setDraftPlacement({ ...draftPlacement, rotation: +e.target.value })}
-              className="flex-1 accent-ink"
-            />
-            <span className="w-9 text-right tabular-nums text-ink">{draftPlacement.rotation}°</span>
-          </label>
-          <div className="mt-2.5 flex gap-2">
-            <button className="btn btn-line btn-sm flex-1" onClick={() => finishAdjust(false)}>
-              취소
-            </button>
-            <button className="btn btn-dark btn-sm flex-1" onClick={() => finishAdjust(true)}>
-              <IconCheck width={14} height={14} /> 완료
-            </button>
-          </div>
-        </div>
-      )}
+          <span className="text-[9px] font-bold tracking-[0.08em] text-mute">{SLOT_EN[s]}</span>
+          <span className="truncate text-[11px] font-semibold">{sel[s]!.name}</span>
+          {locked.has(s) && <IconLock width={10} height={10} strokeWidth={2.2} className="shrink-0" />}
+        </button>
+      ))}
     </div>
   );
 
-  const categoryTabs = (variant: "pill" | "underline") => (
-    <div className={variant === "pill" ? "no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4" : "flex border-b border-line"}>
+  const stage = (
+    <AvatarViewer
+      body={bodyParams}
+      outfit={sel}
+      overlay={lookOverlay}
+      className="h-[min(58dvh,540px)] min-h-[360px] lg:h-[min(80dvh,760px)]"
+    />
+  );
+
+  const categoryTabs = (
+    <div className="flex border-b border-line">
       {ORDER.map((s) => {
         const on = active === s;
-        return variant === "pill" ? (
-          <button key={s} className="chip shrink-0" data-on={on} onClick={() => setActive(s)}>
-            {SLOT_KO[s]}
-            {locked.has(s) && <IconLock width={11} height={11} strokeWidth={2} />}
-          </button>
-        ) : (
+        return (
           <button
             key={s}
             onClick={() => setActive(s)}
-            className={`-mb-px flex flex-1 items-center justify-center gap-1 border-b-2 py-3 text-[13px] transition ${
-              on ? "border-ink font-bold text-ink" : "border-transparent text-mute hover:text-ink"
+            aria-pressed={on}
+            className={`-mb-px flex flex-1 items-center justify-center gap-1 border-b-2 py-3 text-[11.5px] font-bold tracking-[0.06em] transition ${
+              on ? "border-ink text-ink" : "border-transparent text-mute hover:text-ink"
             }`}
           >
-            {SLOT_KO[s]}
-            {locked.has(s) && <IconLock width={11} height={11} strokeWidth={2} />}
+            {SLOT_EN[s]}
+            {locked.has(s) && <IconLock width={10} height={10} strokeWidth={2.2} />}
           </button>
         );
       })}
@@ -437,11 +299,7 @@ function Builder() {
   );
 
   const noneCard = (compact: boolean) => (
-    <button
-      data-sel={!cur}
-      onClick={() => setSlot(active, undefined)}
-      className={`${compact ? "w-[84px] shrink-0 snap-start" : ""} text-left`}
-    >
+    <button data-sel={!cur} onClick={() => setSlot(active, undefined)} className={`${compact ? "w-[84px] shrink-0 snap-start" : ""} text-left`}>
       <div
         className={`grid aspect-[5/6] place-items-center rounded-md border text-[12px] ${
           !cur ? "border-ink font-semibold text-ink" : "border-dashed border-line-2 text-mute"
@@ -475,7 +333,7 @@ function Builder() {
         {locked.has(active) ? <IconLock width={13} height={13} strokeWidth={2} /> : <IconUnlock width={13} height={13} strokeWidth={2} />}
         {locked.has(active) ? "고정됨" : "고정"}
       </button>
-      <button aria-label="코디 옵션" onClick={() => setOptsOpen(true)} className="grid h-8 w-8 place-items-center rounded-md border border-line">
+      <button aria-label="아바타 옵션" onClick={() => setOptsOpen(true)} className="grid h-8 w-8 place-items-center rounded-md border border-line">
         <IconMore width={18} height={18} />
       </button>
     </div>
@@ -487,11 +345,7 @@ function Builder() {
         <button className="btn btn-line flex-1 rounded-r-none" onClick={() => randomize()}>
           <IconShuffle width={17} height={17} /> {randomMode === "pure" ? "PURE RANDOM" : "RANDOM"}
         </button>
-        <button
-          aria-label="랜덤 방식"
-          className="btn btn-line rounded-l-none border-l-0 px-2.5"
-          onClick={() => setModeMenu((x) => !x)}
-        >
+        <button aria-label="랜덤 방식" className="btn btn-line rounded-l-none border-l-0 px-2.5" onClick={() => setModeMenu((x) => !x)}>
           <IconChevronD width={15} height={15} />
         </button>
         {modeMenu && (
@@ -518,8 +372,8 @@ function Builder() {
           </div>
         )}
       </div>
-      <button className="btn btn-dark flex-1" disabled={count < 2} onClick={() => setSaveOpen(true)}>
-        SAVE
+      <button className="btn btn-dark flex-1" disabled={count < 2} onClick={tryOn}>
+        <IconSparkle width={16} height={16} /> AI TRY-ON
       </button>
     </div>
   );
@@ -535,12 +389,10 @@ function Builder() {
   const info = (
     <div>
       <div className="flex items-baseline justify-between">
-        <p className="text-[13px] font-bold">현재 코디 정보</p>
+        <p className="text-[13px] font-bold">현재 코디</p>
         {source === "random" && <span className="text-[10.5px] font-semibold text-mute">RANDOM</span>}
       </div>
-      <p className="mt-1 text-[11px] font-semibold tracking-[0.06em] text-mute">
-        {[...tags.styles, tags.tone].filter(Boolean).join(" · ") || "—"}
-      </p>
+      <p className="mt-1 text-[11px] font-semibold tracking-[0.06em] text-mute">{[...tags.styles, tags.tone].filter(Boolean).join(" · ") || "—"}</p>
       <ul className="mt-3 divide-y divide-line border-y border-line">
         {ORDER.map((s) => {
           const it = sel[s];
@@ -577,6 +429,18 @@ function Builder() {
     </div>
   );
 
+  const itemGrid = (
+    <div className="grid grid-cols-3 gap-x-2.5 gap-y-4 xl:grid-cols-4">
+      {noneCard(false)}
+      {list.map((it) => (
+        <div key={it.id} data-sel={cur?.id === it.id}>
+          <ItemCard item={it} size="sm" meta="none" selected={cur?.id === it.id} onClick={() => setSlot(active, it)} />
+          <p className={`mt-1.5 truncate text-[11.5px] ${cur?.id === it.id ? "font-bold" : "text-ink-2"}`}>{it.name}</p>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div>
       {/* header */}
@@ -588,131 +452,66 @@ function Builder() {
           <h1 className="text-[15px] font-extrabold tracking-[0.02em] lg:text-[18px]">OUTFIT BUILDER</h1>
           {loaded && <p className="text-[11px] text-mute">편집 중 · {loaded.name}</p>}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={adjust ? () => finishAdjust(false) : startAdjust}
-            className={`hidden h-9 items-center gap-1.5 rounded-md border px-3 text-[12px] font-semibold lg:flex ${adjust ? "border-ink bg-ink text-paper" : "border-line"}`}
-          >
-            <IconMove width={15} height={15} /> 위치 조정
-          </button>
-          <button onClick={() => setSaveOpen(true)} disabled={count < 2} className="text-[13px] font-bold disabled:opacity-40 lg:hidden">
-            저장하기
-          </button>
-          <button onClick={() => setSaveOpen(true)} disabled={count < 2} className="btn btn-dark btn-sm hidden lg:inline-flex">
-            저장하기
-          </button>
-        </div>
+        <button onClick={() => setSaveOpen(true)} disabled={count < 2} className="text-[13px] font-bold tracking-[0.04em] disabled:opacity-40 lg:hidden">
+          SAVE
+        </button>
+        <button onClick={() => setSaveOpen(true)} disabled={count < 2} className="btn btn-dark btn-sm hidden lg:inline-flex">
+          SAVE
+        </button>
       </div>
 
-      {/* MOBILE / TABLET */}
-      <div className="lg:hidden">
+      {/* One 3D stage (one WebGL context) for every breakpoint.
+          Mobile: stage → tabs → strip → actions · Desktop: stage | wardrobe panel */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:gap-5">
         {stage}
-        <div className="mt-4">{categoryTabs("pill")}</div>
-        <div ref={stripRef} className="no-scrollbar relative -mx-4 mt-3 flex snap-x gap-2 overflow-x-auto px-4 pb-1">
-          {list.length === 0 ? (
-            <div className="w-full">{emptyList}</div>
-          ) : (
-            <>
-              {noneCard(true)}
-              {list.map((it) => (
-                <div key={it.id} data-sel={cur?.id === it.id} className="w-[84px] shrink-0 snap-start">
-                  <ItemCard item={it} size="xs" meta="none" selected={cur?.id === it.id} onClick={() => setSlot(active, it)} />
-                  <p className={`mt-1.5 truncate text-[11.5px] ${cur?.id === it.id ? "font-bold" : "text-ink-2"}`}>{it.name}</p>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-        <div className="mt-3">{selectedRow}</div>
-        <div className="mt-4">{actions}</div>
-        <div className="mt-3">{comboLine}</div>
-        <div className="mt-6 rounded-lg border border-line p-4">{info}</div>
-      </div>
 
-      {/* DESKTOP: mannequin | items | info */}
-      <div className="hidden gap-5 lg:grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_300px]">
-        <div>{stage}</div>
-
-        <div className="flex h-[min(76dvh,720px)] flex-col rounded-lg border border-line">
-          <div className="px-3">{categoryTabs("underline")}</div>
-          <div className="flex-1 overflow-y-auto p-3">
+        <div className="lg:hidden">
+          <div className="mt-2">{categoryTabs}</div>
+          <div ref={stripRef} className="no-scrollbar relative -mx-4 mt-3 flex snap-x gap-2 overflow-x-auto px-4 pb-1">
             {list.length === 0 ? (
-              emptyList
+              <div className="w-full">{emptyList}</div>
             ) : (
-              <div className="grid grid-cols-3 gap-x-2.5 gap-y-4">
-                {noneCard(false)}
+              <>
+                {noneCard(true)}
                 {list.map((it) => (
-                  <div key={it.id} data-sel={cur?.id === it.id}>
-                    <ItemCard item={it} size="sm" meta="none" selected={cur?.id === it.id} onClick={() => setSlot(active, it)} />
+                  <div key={it.id} data-sel={cur?.id === it.id} className="w-[84px] shrink-0 snap-start">
+                    <ItemCard item={it} size="xs" meta="none" selected={cur?.id === it.id} onClick={() => setSlot(active, it)} />
                     <p className={`mt-1.5 truncate text-[11.5px] ${cur?.id === it.id ? "font-bold" : "text-ink-2"}`}>{it.name}</p>
                   </div>
                 ))}
-              </div>
+              </>
             )}
           </div>
-          <div className="border-t border-line px-3 py-2.5">{selectedRow}</div>
+          <div className="mt-3">{selectedRow}</div>
+          <div className="mt-4">{actions}</div>
+          <div className="mt-3">{comboLine}</div>
         </div>
 
-        <div className="flex h-[min(76dvh,720px)] flex-col rounded-lg border border-line p-4">
-          <div className="flex-1 overflow-y-auto">{info}</div>
-          <div className="mt-4 space-y-3">
-            <div className="text-[12px] text-mute">
-              <div className="flex justify-between">
-                <span>조합 가능 수</span>
-                <b className="text-ink">{stats.total.toLocaleString()}가지</b>
-              </div>
-              <div className="mt-0.5 flex justify-between">
-                <span>잘 어울리는 조합</span>
-                <b className="text-ink">
-                  {stats.estimated ? "약 " : ""}
-                  {stats.good.toLocaleString()}가지
-                </b>
-              </div>
-            </div>
+        <div className="hidden h-[min(80dvh,760px)] flex-col rounded-lg border border-line lg:flex">
+          <div className="px-3">{categoryTabs}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">{list.length === 0 ? emptyList : itemGrid}</div>
+          <div className="space-y-3 border-t border-line p-3">
+            {selectedRow}
             {actions}
+            <p className="text-[10.5px] text-mute">← → 옷 변경 · ↑ ↓ 카테고리 · R 랜덤 · L 고정 · 드래그 회전 · 휠 줌</p>
           </div>
-          <p className="mt-3 text-[10.5px] text-mute">← → 옷 변경 · ↑ ↓ 카테고리 · R 랜덤 · L 고정</p>
         </div>
+
+        <div className="mt-6 rounded-lg border border-line p-4 lg:mt-5">{info}</div>
+        <div className="hidden self-start lg:mt-5 lg:block">{comboLine}</div>
       </div>
 
-      {/* options */}
-      <Sheet open={optsOpen} onClose={() => setOptsOpen(false)} title="코디 옵션">
-        <div className="divide-y divide-line text-[14px]">
-          <button className="flex w-full items-center justify-between py-3.5 text-left" onClick={startAdjust}>
-            <span>
-              <b className="block font-semibold">{activeLabel} 위치 조정</b>
-              <span className="text-[12px] text-mute">마네킹 위에서 드래그 · 크기 · 회전 (이 옷의 모든 코디에 적용)</span>
-            </span>
-            <IconMove width={18} height={18} />
-          </button>
-          <label className="flex items-center justify-between py-3.5">
-            <span>
-              <b className="block font-semibold">상의 넣어 입기</b>
-              <span className="text-[12px] text-mute">하의를 상의 위 레이어로</span>
-            </span>
-            <input type="checkbox" className="h-5 w-5 accent-ink" checked={!!render.tuck} onChange={(e) => setRender({ ...render, tuck: e.target.checked })} />
-          </label>
-          <label className="flex items-center justify-between py-3.5">
-            <span>
-              <b className="block font-semibold">아우터 열어 입기</b>
-              <span className="text-[12px] text-mute">{sel.outer && !canOpen(sel.outer) ? "이 아우터는 닫힌 상태로만 표시돼요" : "앞을 열어 상의가 보이게"}</span>
-            </span>
-            <input
-              type="checkbox"
-              className="h-5 w-5 accent-ink"
-              checked={render.openOuter !== false}
-              onChange={(e) => setRender({ ...render, openOuter: e.target.checked })}
-            />
-          </label>
-          <div className="py-3.5">
-            <b className="block font-semibold">마네킹 체형</b>
-            <div className="mt-2 flex gap-1.5">
-              {BODIES.map((b) => (
-                <button key={b.key} className="chip" data-on={render.body === b.key} onClick={() => setRender({ ...render, body: b.key })}>
-                  {b.ko}
-                </button>
-              ))}
-            </div>
+      {/* avatar options */}
+      <Sheet open={optsOpen} onClose={() => setOptsOpen(false)} title="아바타 옵션">
+        <div className="py-2">
+          <b className="block text-[14px] font-semibold">체형</b>
+          <p className="text-[12px] text-mute">키는 프로필의 신장({bodyParams.height}cm)을 사용해요. 코디와 함께 저장돼요.</p>
+          <div className="mt-3 flex gap-1.5">
+            {BODIES.map((b) => (
+              <button key={b.key} className="chip" data-on={render.body === b.key} onClick={() => setRender({ ...render, body: b.key })}>
+                {b.ko}
+              </button>
+            ))}
           </div>
         </div>
       </Sheet>

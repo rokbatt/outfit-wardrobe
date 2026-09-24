@@ -52,7 +52,7 @@ app/
   add/                   옷 추가 — 촬영/여러 장 선택 → 정리 → 분석 → 확인 → 저장(연속)
   wardrobe/              옷장 — 카테고리 탭 · 색/계절/스타일/브랜드 필터 · 정렬 · 잠든 옷
   wardrobe/[id]/         상세 — 착용 통계 · 편집/사진 교체 · 이 옷으로 만든 조합
-  outfit/                OUTFIT BUILDER — flat-lay 보드 · 스와이프 · 슬롯 고정 · 랜덤 · 저장
+  outfit/                OUTFIT BUILDER — 3D 아바타(R3F) · 슬롯 고정 · 랜덤 · 저장 · AI TRY-ON
   outfits/               MY OUTFITS — 상황별 · Wear this
   ai/                    Stylist — 조건 → 3가지 룩 (현재 규칙 엔진, Phase 2에 Claude 연결)
   profile/               선호 설정 · 백업 내보내기

@@ -1,6 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
-import { garmentSource } from "@/lib/mannequin";
+import { garmentSource } from "@/lib/garment";
 import { daysSince } from "@/lib/styling";
 import { categoryLabel } from "@/lib/taxonomy";
 import type { WardrobeItem } from "@/lib/types";

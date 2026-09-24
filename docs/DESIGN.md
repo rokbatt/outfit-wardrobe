@@ -46,7 +46,7 @@
 | `/add` | 옷 추가 — 촬영/업로드 → 처리 → 분석 → 확인 → 저장 (+ 연속 등록) | 1 |
 | `/wardrobe` | 전체 옷장 — 카테고리 탭, 색상·계절·스타일·정렬 필터, 그리드 | 1 |
 | `/wardrobe/[id]` | 옷 상세 — 이미지, 태그, 착용 통계, 편집/삭제, 이 옷으로 코디하기 | 1 |
-| `/outfit` | OUTFIT BUILDER — flat-lay 보드 + 카테고리별 좌우 캐러셀, 랜덤, 저장 | 1 |
+| `/outfit` | OUTFIT BUILDER — 3D 아바타(회전·줌) + 카테고리별 옷 선택, 랜덤, 저장, AI TRY-ON (→ `docs/OUTFIT_3D.md`) | 1 |
 | `/outfits` | MY OUTFITS — 상황별 필터, 불러오기/입기/삭제 | 1 |
 | `/ai` | AI STYLIST — 조건 입력 → 3개 코디 + 이유 | 2 |
 | `/profile` | 프로필/선호 — 성별, 체형(선택형), 선호 핏·스타일·색, 피할 색, 난이도 | 1 |
@@ -106,7 +106,7 @@ components/
   GarmentGlyph          사진 없는 아이템용 SVG 실루엣 (서브카테고리·색 반영)
   ItemForm              AI 결과 확인·수정 폼 (칩 기반, 타이핑 최소화)
   ChipGroup             단일/다중 선택 칩
-  OutfitBoard           flat-lay 보드 (아우터·상의 / 하의 / 신발·액세서리)
+  OutfitBoard           flat-lay 썸네일 (실제 옷 이미지, 마네킹 없음)
   SlotCarousel          < [카드] > 좌우 스와이프 선택
   SaveOutfitSheet       바텀시트 (이름·상황)
   Sheet, Empty, Toast
@@ -162,22 +162,10 @@ Phase 2 옵션: `@imgly/background-removal` (브라우저 WASM, 서버 비용 0)
 
 ---
 
-# v2 · Mannequin Outfit Builder
+# v2 · Outfit Builder
 
-## 레이어 렌더러
-```
-<OutfitRenderer>                 components/outfit/OutfitRenderer.tsx
-  <Mannequin />                  SVG 쇼룸 마네킹 (STANDARD / SLIM / RELAXED)
-  <GarmentLayer slot="shoes" />  z 5   · 한 짝 사진이면 좌우 반전해 한 켤레로
-  <GarmentLayer slot="bottom" /> z 10  · '넣어 입기' 시 21
-  <GarmentLayer slot="top" />    z 20
-  <GarmentLayer slot="outer" />  z 30  · '열어 입기' 시 좌우로 갈라 상의 노출
-  <GarmentLayer slot="acc" />    z 40  · 모자/안경/머플러/벨트/시계/가방 위치 자동
-</OutfitRenderer>
-```
-- 좌표계: 마네킹 400×1000. `lib/mannequin.ts` 의 `zoneFor()` 가 슬롯·서브카테고리·체형별 앵커 존을 돌려준다.
-- 누끼 이미지(여백 없이 크롭됨)를 존 안에 `contain` + 앵커 정렬(상단/하단)로 배치 → 옷별 `placement`(x·y·scale·rotation·layer)를 덧씌움.
-- 모든 화면(홈·내 코디·상세·AI)이 같은 렌더러를 쓴다. Virtual try-on 으로 바꿀 때는 GarmentLayer 생성부만 교체.
+> 2D 레이어드 마네킹(SVG + 옷 이미지 z-index)은 **폐기**되었다. 3D 빌더 + AI Try-On 구조는 `docs/OUTFIT_3D.md` 참고.
+> `placement`/`anchor_*` 필드와 `render.tuck/openOuter` 는 기존 데이터 호환을 위해 남아 있지만 더 이상 렌더링에 쓰이지 않는다.
 
 ## 배경 제거 파이프라인 (`lib/cutout.ts`)
 원본 → BackgroundRemover(api → local) → 알파 마스크 → bbox 트림 → WebP(알파) 저장
