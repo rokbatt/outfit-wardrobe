@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { GarmentGlyph } from "@/components/GarmentGlyph";
-import { IconBack, IconCamera, IconCheck, IconClipboard, IconImage } from "@/components/icons";
+import { IconBack, IconCamera, IconCheck, IconClipboard, IconImage, IconLink } from "@/components/icons";
 import { autoName, blankItem, ItemForm } from "@/components/ItemForm";
 import { makeCutout, type CutoutOutcome } from "@/lib/cutout";
 import { processImage, type ProcessedImage } from "@/lib/image";
@@ -24,6 +24,128 @@ async function aiEnabled() {
     aiEnabledCache = false;
   }
   return aiEnabledCache;
+}
+
+const proxied = (image: string, page: string) => `/api/fetch-product?${new URLSearchParams({ image, page })}`;
+
+/**
+ * Product link → photo candidates → the picked one becomes a File handed to `onFile`,
+ * so it goes through exactly the same queue as an uploaded photo (processImage → AI → cutout).
+ * Images always come through our /api/fetch-product proxy (shop CDNs block hotlinking / CORS).
+ */
+function LinkImport({ onFile, onFallback }: { onFile: (f: File) => void; onFallback: () => void }) {
+  const [url, setUrl] = useState("");
+  const [state, setState] = useState<"idle" | "loading" | "picking" | "error">("idle");
+  const [found, setFound] = useState<{ images: string[]; page: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [taking, setTaking] = useState<string | null>(null);
+
+  const lookup = async () => {
+    if (!url.trim()) return;
+    setState("loading");
+    setError(null);
+    setFound(null);
+    try {
+      const r = await fetch("/api/fetch-product", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.images?.length) throw new Error(j.error ?? "이 사이트에서는 자동으로 가져올 수 없어요, 캡처해서 올려주세요");
+      setFound({ images: j.images, page: j.page });
+      setState("picking");
+    } catch (e) {
+      setError(e instanceof Error && e.message !== "Failed to fetch" ? e.message : "연결에 실패했어요. 캡처해서 올려주세요");
+      setState("error");
+    }
+  };
+
+  const take = async (image: string) => {
+    if (!found || taking) return;
+    setTaking(image);
+    try {
+      const r = await fetch(proxied(image, found.page));
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? "이미지를 받아오지 못했어요");
+      const blob = await r.blob();
+      const ext = blob.type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+      onFile(new File([blob], `link-${Date.now()}.${ext}`, { type: blob.type }));
+      setUrl("");
+      setFound(null);
+      setState("idle");
+    } catch (e) {
+      setError(`${e instanceof Error ? e.message : e} · 다른 사진을 고르거나 캡처해서 올려주세요`);
+    } finally {
+      setTaking(null);
+    }
+  };
+
+  return (
+    <div className="mt-3">
+      <form
+        onSubmit={(e) => (e.preventDefault(), lookup())}
+        className="flex items-center gap-2 rounded-lg border border-line-2 py-1.5 pl-3.5 pr-1.5 transition focus-within:border-ink"
+      >
+        <IconLink width={17} height={17} className="shrink-0 text-mute" />
+        <input
+          type="url"
+          inputMode="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="상품 링크 붙여넣기 (무신사 등)"
+          className="min-w-0 flex-1 bg-transparent py-1.5 text-[13.5px] outline-none placeholder:text-mute"
+        />
+        <button type="submit" className="btn btn-dark btn-sm shrink-0" disabled={!url.trim() || state === "loading"}>
+          {state === "loading" ? "찾는 중…" : "가져오기"}
+        </button>
+      </form>
+
+      {state === "loading" && (
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="shimmer aspect-square rounded-md" />
+          ))}
+        </div>
+      )}
+
+      {state === "picking" && found && (
+        <div className="mt-3">
+          <p className="mb-2 text-[12.5px] text-ink-2">흰 배경 상품 사진을 하나 골라주세요</p>
+          <div className="grid grid-cols-3 gap-2">
+            {found.images.map((src) => (
+              <button
+                key={src}
+                onClick={() => take(src)}
+                disabled={!!taking}
+                className={`relative aspect-square overflow-hidden rounded-md bg-card ring-offset-2 transition hover:ring-2 hover:ring-ink disabled:cursor-wait ${taking === src ? "ring-2 ring-ink" : taking ? "opacity-40" : ""}`}
+              >
+                <img src={proxied(src, found.page)} alt="" loading="lazy" className="h-full w-full object-contain" />
+                {taking === src && (
+                  <span className="absolute inset-x-0 bottom-0 bg-black/60 py-1 text-[11px] text-white">가져오는 중…</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 rounded-md bg-card px-4 py-3 text-[12.5px] leading-relaxed text-ink-2">
+          <p>{error}</p>
+          <button onClick={onFallback} className="mt-2 font-semibold text-ink underline underline-offset-4">
+            그냥 캡처해서 올리기
+          </button>
+          <span className="hidden text-mute sm:inline"> · 캡처 후 Ctrl+V(⌘V)로 바로 붙여넣어도 돼요</span>
+        </div>
+      )}
+
+      {state === "picking" && !error && (
+        <button onClick={onFallback} className="mt-2 text-[12px] text-mute underline underline-offset-4">
+          마음에 드는 사진이 없나요? 캡처해서 올리기
+        </button>
+      )}
+    </div>
+  );
 }
 
 function AddFlow() {
@@ -247,6 +369,7 @@ function AddFlow() {
               <span className="text-[12px] text-mute">여러 장 선택 가능</span>
             </button>
           </div>
+          <LinkImport onFile={(f) => pickFiles([f])} onFallback={() => galRef.current?.click()} />
           <button
             onClick={pasteFromClipboard}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-line-2 py-3.5 text-[13px] font-semibold text-ink-2 transition hover:border-ink active:scale-[0.99]"
