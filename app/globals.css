@@ -31,6 +31,8 @@ body {
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.015em;
   font-size: 14px;
+  /* phones: a stray wide element must never make the whole page pan sideways (clip keeps position: sticky working) */
+  overflow-x: clip;
 }
 
 /* Component classes live in the components layer so Tailwind utilities (hidden, lg:*, w-full…) override them. */
@@ -119,6 +121,11 @@ body {
   outline: none;
 }
 .field:focus { border-color: var(--color-ink); }
+/* Small icon controls: keep the look, grow the touch area to ~44px (Apple HIG).
+   position: relative lives in this layer, so an `absolute` utility on the same element still wins. */
+.tap { position: relative; }
+.tap::after { content: ""; position: absolute; inset: -8px; }
+
 select.field {
   appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, #111 50%), linear-gradient(135deg, #111 50%, transparent 50%);
@@ -128,6 +135,16 @@ select.field {
   padding-right: 32px;
 }
 
+}
+
+/* iOS Safari zooms the page when a field under 16px gets focus — keep fields at 16px on phones.
+   Unlayered on purpose so it beats the text-[13px]-style utilities on individual inputs. */
+@media (max-width: 1023px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }

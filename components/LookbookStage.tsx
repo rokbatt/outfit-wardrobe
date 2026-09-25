@@ -483,7 +483,7 @@ export function LookbookStage({
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
                     onPointerCancel={endDrag}
-                    className="pointer-events-auto absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-[3px] border-[1.5px] border-ink bg-paper shadow-sm"
+                    className="tap pointer-events-auto absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-[3px] border-[1.5px] border-ink bg-paper shadow-sm"
                     style={{
                       left: h.includes("w") ? "0%" : h.includes("e") ? "100%" : "50%",
                       top: h.includes("n") ? "0%" : h.includes("s") ? "100%" : "50%",
@@ -516,7 +516,7 @@ export function LookbookStage({
                     </>
                   )}
                   {dirtyIds.length === 0 && (
-                    <button aria-label="크기 조절 닫기" className="grid h-6 w-6 place-items-center rounded-full text-ink-2 hover:bg-card" onClick={() => setEditing(null)}>
+                    <button aria-label="크기 조절 닫기" className="tap grid h-6 w-6 place-items-center rounded-full text-ink-2 hover:bg-card" onClick={() => setEditing(null)}>
                       <IconClose width={12} height={12} />
                     </button>
                   )}
@@ -527,7 +527,7 @@ export function LookbookStage({
             {groups.outer.length > 0 && (
               <button
                 onClick={() => onActive(upperSlot === "outer" ? "top" : "outer")}
-                className="absolute left-1.5 z-30 rounded-full border border-line bg-paper/90 px-2 py-0.5 text-[9.5px] font-bold tracking-[0.06em] text-ink-2 shadow-sm backdrop-blur"
+                className="tap absolute left-1.5 z-30 rounded-full border border-line bg-paper/90 px-2 py-0.5 text-[9.5px] font-bold tracking-[0.06em] text-ink-2 shadow-sm backdrop-blur"
                 style={{ top: rowCenter.upper + 22 }}
                 aria-label="넘길 옷 바꾸기 (상의 / 아우터)"
               >
@@ -580,7 +580,7 @@ export function LookbookStage({
                 setAccOpen(false);
                 if (active === "acc") onActive("top");
               }}
-              className="grid h-6 w-6 place-items-center rounded-full border border-line bg-paper/85 text-ink-2 shadow-sm"
+              className="tap grid h-7 w-7 place-items-center rounded-full border border-line bg-paper/85 text-ink-2 shadow-sm lg:h-6 lg:w-6"
               aria-label="액세서리 접기"
             >
               <IconClose width={12} height={12} />
@@ -767,8 +767,8 @@ function Arrow({ slot, d, on, onStep, small = false }: { slot: Slot; d: 1 | -1; 
       type="button"
       aria-label={`${KO[slot]} ${d < 0 ? "이전" : "다음"}`}
       onClick={() => onStep(slot, d)}
-      className={`pointer-events-auto grid shrink-0 place-items-center rounded-full border bg-paper/85 shadow-sm backdrop-blur transition hover:border-ink ${
-        small ? "h-6 w-6" : "h-7 w-7"
+      className={`tap pointer-events-auto grid shrink-0 place-items-center rounded-full border bg-paper/85 shadow-sm backdrop-blur transition hover:border-ink ${
+        small ? "h-7 w-7 lg:h-6 lg:w-6" : "h-8 w-8 lg:h-7 lg:w-7"
       } ${on ? "border-ink/40 text-ink" : "border-line text-ink-2"}`}
     >
       {d < 0 ? <IconChevronL width={s} height={s} /> : <IconChevronR width={s} height={s} />}

@@ -205,7 +205,7 @@ export function Sheet({
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center" role="dialog" aria-modal>
       <button aria-label="닫기" className="absolute inset-0 bg-black/40 backdrop-blur-[3px]" onClick={onClose} />
       <div
-        className={`sheet-up safe-bottom relative max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-paper px-5 pb-5 pt-3 lg:rounded-lg lg:px-6 lg:pt-5 ${
+        className={`sheet-up relative max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-paper px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3 lg:pb-5 lg:rounded-lg lg:px-6 lg:pt-5 ${
           wide ? "lg:max-w-[560px]" : "lg:max-w-md"
         }`}
       >

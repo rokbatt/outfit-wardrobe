@@ -338,7 +338,7 @@ function AddFlow() {
   return (
     <div className="mx-auto max-w-[560px]">
       <div className="flex items-center justify-between pb-4">
-        <Link href="/wardrobe" className="-ml-2 p-2" aria-label="뒤로">
+        <Link href="/wardrobe" className="tap -ml-2 p-2" aria-label="뒤로">
           <IconBack />
         </Link>
         <p className="eyebrow">
@@ -447,7 +447,7 @@ function AddFlow() {
             <ItemForm value={form} onChange={onForm} aiFields={aiFields} />
           </div>
 
-          <div className="safe-bottom sticky bottom-0 -mx-4 mt-4 flex gap-2 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur">
+          <div className="sticky bottom-0 -mx-4 mt-4 flex gap-2 border-t border-line bg-paper/95 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 backdrop-blur">
             <button className="btn btn-ghost" onClick={manual ? () => (setManual(false), setPhase("idle")) : skip}>
               {manual ? "취소" : queue.length > 1 ? "건너뛰기" : "다시 찍기"}
             </button>

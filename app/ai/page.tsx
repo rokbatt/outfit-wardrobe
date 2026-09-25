@@ -97,7 +97,7 @@ export default function StylistPage() {
   return (
     <div className="mx-auto max-w-[880px]">
       <div className="-mx-4 flex h-11 items-center gap-2 px-4 lg:mx-0 lg:px-0">
-        <button onClick={() => router.back()} className="-ml-1.5 p-1.5 lg:hidden" aria-label="뒤로">
+        <button onClick={() => router.back()} className="tap -ml-1.5 p-1.5 lg:hidden" aria-label="뒤로">
           <IconBack width={20} height={20} />
         </button>
         <h1 className="text-[15px] font-bold lg:text-[18px]">AI 스타일리스트</h1>
@@ -115,14 +115,14 @@ export default function StylistPage() {
         />
       ) : (
         <>
-          <div className="mt-3 flex items-end justify-between">
-            <div>
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-[20px] font-bold">오늘의 추천 코디</h2>
               <p className="mt-0.5 text-[12.5px] text-mute">
                 {SEASONS.find((s) => s.key === season)?.ko} · {SITUATIONS.find((s) => s.key === situation)?.ko} · 내 옷장에 있는 옷으로만 골랐어요
               </p>
             </div>
-            <div className="flex gap-1">
+            <div className="flex shrink-0 gap-1">
               <button aria-label="다시 추천" onClick={() => setNonce((n) => n + 1)} className="grid h-9 w-9 place-items-center rounded-md border border-line">
                 <IconShuffle width={17} height={17} />
               </button>
@@ -187,11 +187,12 @@ export default function StylistPage() {
                     <div className="flex min-w-0 flex-1 flex-col py-1">
                       <p className="text-[15px] font-bold">{title}</p>
                       <p className="mt-1 text-[12.5px] leading-relaxed text-ink-2">{l.reasons[0] ? `${l.reasons[0]}. ${desc}` : desc}</p>
+                      {/* thumbnails shrink to fit a phone-width card (5 × 46px doesn't) */}
                       <div className="mt-3 flex gap-1.5">
                         {ORDER.map((s) => l.sel[s])
                           .filter(Boolean)
                           .map((i) => (
-                            <span key={i!.id} className="block h-[52px] w-[46px] shrink-0 rounded bg-card p-1 lg:h-[64px] lg:w-[56px]">
+                            <span key={i!.id} className="block aspect-[46/52] min-w-0 max-w-[46px] flex-1 rounded bg-card p-1 lg:max-w-[56px]">
                               <ItemVisual item={i!} />
                             </span>
                           ))}

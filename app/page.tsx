@@ -181,7 +181,7 @@ export default function Home() {
                   <div className="flex items-center justify-between">
                     <p className="text-[11px] font-bold tracking-[0.06em] text-paper/60">DISCOVER YOUR WARDROBE</p>
                     {dormant.length > 1 && (
-                      <button className="text-[11.5px] text-paper/70 underline" onClick={() => setDShuffle((s) => s + 1)}>
+                      <button className="tap text-[11.5px] text-paper/70 underline" onClick={() => setDShuffle((s) => s + 1)}>
                         다른 옷
                       </button>
                     )}
@@ -222,7 +222,7 @@ export default function Home() {
                 {tags?.tone && <span className="rounded bg-card px-1.5 py-0.5 text-[10px] font-bold text-ink-2">{tags.tone}</span>}
               </div>
               {!wornSel && (
-                <button aria-label="다른 조합" onClick={() => setShuffle((s) => s + 1)} className="-mr-1 p-1 text-mute hover:text-ink">
+                <button aria-label="다른 조합" onClick={() => setShuffle((s) => s + 1)} className="tap -mr-1 p-1 text-mute hover:text-ink">
                   <IconShuffle width={17} height={17} />
                 </button>
               )}
@@ -269,7 +269,7 @@ export default function Home() {
           <section className="mt-8">
             <div className="mb-2.5 flex items-baseline justify-between">
               <h2 className="text-[15px] font-bold">최근 추가한 옷</h2>
-              <Link href="/wardrobe" className="text-[12px] text-mute">
+              <Link href="/wardrobe" className="tap text-[12px] text-mute">
                 전체보기
               </Link>
             </div>
@@ -286,7 +286,7 @@ export default function Home() {
             <section className="mt-8">
               <div className="mb-2.5 flex items-baseline justify-between">
                 <h2 className="text-[15px] font-bold">내 코디</h2>
-                <Link href="/outfits" className="text-[12px] text-mute">
+                <Link href="/outfits" className="tap text-[12px] text-mute">
                   전체보기
                 </Link>
               </div>

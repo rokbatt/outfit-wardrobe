@@ -94,14 +94,15 @@ export default function ItemDetail() {
     <div className="lg:grid lg:grid-cols-[1fr_1fr] lg:gap-12">
       <div>
         <div className="flex items-center justify-between pb-3 lg:hidden">
-          <button onClick={() => router.back()} className="-ml-2 p-2" aria-label="뒤로">
+          <button onClick={() => router.back()} className="tap -ml-2 p-2" aria-label="뒤로">
             <IconBack />
           </button>
-          <button onClick={startEdit} className="text-[13px] font-semibold uppercase tracking-[0.1em]">
+          <button onClick={startEdit} className="-mr-2 px-2 py-3 text-[13px] font-semibold uppercase tracking-[0.1em]">
             Edit
           </button>
         </div>
-        <div className="relative aspect-[4/5] overflow-hidden rounded-lg bg-card p-8 lg:sticky lg:top-10">
+        {/* phones: cap the photo so the name, stats and actions start on the first screen */}
+        <div className="relative aspect-[4/5] overflow-hidden rounded-lg bg-card p-8 max-lg:max-h-[52dvh] max-lg:w-full lg:sticky lg:top-10">
           <ItemVisual item={item} />
           {item.image_url && (
             <span className="absolute bottom-3 left-3 rounded bg-paper/90 px-2 py-1 text-[10.5px] font-semibold text-ink-2">
@@ -205,7 +206,7 @@ export default function ItemDetail() {
               </button>
             </div>
             <Link href={`/outfit?${suggestionRefs.map(([s, it]) => `${s}=${it.id}`).join("&")}`} className="block">
-              <OutfitBoard sel={suggestion} className="max-w-[300px]" />
+              <OutfitBoard sel={suggestion} className="max-w-[300px] max-lg:max-w-none" />
             </Link>
             <p className="mt-2 text-[12.5px] text-mute">누르면 Outfit Builder에서 이어서 바꿀 수 있어요.</p>
           </section>

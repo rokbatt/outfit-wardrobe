@@ -155,7 +155,7 @@ export default function ProfilePage() {
         </Field>
       </div>
 
-      <div className="safe-bottom sticky bottom-[62px] z-10 -mx-4 mt-2 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur lg:bottom-0">
+      <div className="sticky bottom-[calc(59px+env(safe-area-inset-bottom))] z-10 -mx-4 mt-2 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur lg:bottom-0">
         <button
           className="btn btn-dark w-full"
           disabled={!dirty}

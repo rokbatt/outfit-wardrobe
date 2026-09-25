@@ -344,8 +344,10 @@ function Builder() {
         <button
           key={s}
           onClick={() => setActive(s)}
-          className={`pointer-events-auto flex max-w-full items-center gap-1.5 rounded border bg-paper/90 px-2 py-1 text-left shadow-sm backdrop-blur transition ${
-            active === s ? "border-ink" : "border-line"
+          // phones: only the active piece's badge — the full stack covers the right arrows on a short stage,
+          // and the tabs + selected row under the stage already name every piece
+          className={`pointer-events-auto flex max-w-full items-center gap-1.5 rounded border bg-paper/90 px-2 py-0.5 text-left shadow-sm backdrop-blur transition lg:flex lg:py-1 ${
+            active === s ? "border-ink" : "hidden border-line"
           }`}
         >
           <span className="text-[9px] font-bold tracking-[0.08em] text-mute">{SLOT_EN[s]}</span>
@@ -358,7 +360,8 @@ function Builder() {
 
   const showAi = view === "ai" && !!aiImg;
   const stage = (
-    <div className="relative h-[min(62dvh,560px)] min-h-[380px] overflow-hidden rounded-lg bg-stage lg:h-[min(80dvh,760px)]">
+    // phones: leave room under the stage for the tabs + item strip without scrolling
+    <div className="relative h-[min(55dvh,560px)] min-h-[300px] overflow-hidden rounded-lg bg-stage lg:h-[min(80dvh,760px)]">
       {showAi ? (
         <img key={aiImg.key} src={aiImg.url} alt="AI 착용 이미지" className="stage-in absolute inset-0 h-full w-full object-contain" />
       ) : (
@@ -443,7 +446,7 @@ function Builder() {
       <button
         onClick={() => toggleLock(active)}
         aria-pressed={locked.has(active)}
-        className={`flex h-8 items-center gap-1 rounded-md border px-2.5 text-[12px] font-semibold transition ${
+        className={`flex h-9 items-center gap-1 rounded-md border px-3 text-[12px] lg:h-8 lg:px-2.5 font-semibold transition ${
           locked.has(active) ? "border-ink bg-ink text-paper" : "border-line text-ink-2"
         }`}
       >
@@ -530,7 +533,7 @@ function Builder() {
               <button
                 aria-label={`${SLOT_KO[s]} 고정`}
                 onClick={() => toggleLock(s)}
-                className={`grid h-7 w-7 place-items-center rounded ${locked.has(s) ? "bg-ink text-paper" : "text-mute hover:text-ink"}`}
+                className={`grid h-10 w-10 place-items-center rounded lg:h-7 lg:w-7 ${locked.has(s) ? "bg-ink text-paper" : "text-mute hover:text-ink"}`}
               >
                 {locked.has(s) ? <IconLock width={13} height={13} strokeWidth={2} /> : <IconUnlock width={13} height={13} />}
               </button>
@@ -540,7 +543,7 @@ function Builder() {
       </ul>
       {count >= 2 && reasons.length > 0 && (
         <div className="mt-2">
-          <button className="text-[11.5px] text-mute underline underline-offset-2" onClick={() => setWhy((x) => !x)}>
+          <button className="-my-2 py-2 text-[12px] text-mute underline underline-offset-2" onClick={() => setWhy((x) => !x)}>
             {why ? "설명 닫기" : "왜 이 조합?"}
           </button>
           {why && <p className="mt-1.5 text-[12px] leading-relaxed text-ink-2">{reasons.join(" · ")}</p>}
@@ -565,14 +568,14 @@ function Builder() {
     <div>
       {/* header */}
       <div className="-mx-4 mb-3 flex h-11 items-center justify-between px-4 lg:mx-0 lg:mb-5 lg:h-auto lg:px-0">
-        <button onClick={() => router.back()} className="-ml-1.5 p-1.5 lg:hidden" aria-label="뒤로">
+        <button onClick={() => router.back()} className="tap -ml-1.5 p-1.5 lg:hidden" aria-label="뒤로">
           <IconBack width={20} height={20} />
         </button>
         <div className="text-center lg:text-left">
           <h1 className="text-[15px] font-extrabold tracking-[0.02em] lg:text-[18px]">OUTFIT BUILDER</h1>
           {loaded && <p className="text-[11px] text-mute">편집 중 · {loaded.name}</p>}
         </div>
-        <button onClick={() => setSaveOpen(true)} disabled={count < 2} className="text-[13px] font-bold tracking-[0.04em] disabled:opacity-40 lg:hidden">
+        <button onClick={() => setSaveOpen(true)} disabled={count < 2} className="-mr-2 px-2 py-3 text-[13px] font-bold tracking-[0.04em] disabled:opacity-40 lg:hidden">
           SAVE
         </button>
         <button onClick={() => setSaveOpen(true)} disabled={count < 2} className="btn btn-dark btn-sm hidden lg:inline-flex">

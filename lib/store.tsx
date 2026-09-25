@@ -246,7 +246,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     <StoreCtx.Provider value={value}>
       {children}
       {toastState && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 lg:bottom-8">
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 lg:bottom-8">
           <div className="toast-in pointer-events-auto flex items-center gap-4 rounded-full bg-ink px-5 py-3 text-[13px] text-paper shadow-lg">
             <span>{toastState.msg}</span>
             {toastState.action && (
