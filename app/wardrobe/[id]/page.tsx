@@ -12,7 +12,7 @@ import { makeCutout } from "@/lib/cutout";
 import { processImage } from "@/lib/image";
 import { useStore } from "@/lib/store";
 import { daysSince, DORMANT_DAYS, generateOutfit, type Selection } from "@/lib/styling";
-import { categoryLabel, colorDef, FITS, FORMALITY, labelOf, PATTERNS, SEASONS, STYLES } from "@/lib/taxonomy";
+import { categoryLabel, colorDef, FITS, HEM_LENGTHS, FORMALITY, labelOf, PATTERNS, SEASONS, STYLES } from "@/lib/taxonomy";
 import type { NewWardrobeItem, Slot } from "@/lib/types";
 
 export default function ItemDetail() {
@@ -79,6 +79,7 @@ export default function ItemDetail() {
   const tags: [string, string][] = [
     ["카테고리", `${categoryLabel(item.category)} · ${item.subcategory || "-"}`],
     ["핏", labelOf(FITS, item.fit) || "-"],
+    ...(item.hem_length ? [["기장", HEM_LENGTHS.filter((h) => h.key === item.hem_length).map((h) => `${h.ko} · ${h.sub}`)[0] ?? "-"] as [string, string]] : []),
     ["패턴", labelOf(PATTERNS, item.pattern)],
     ["스타일", item.style.map((s) => labelOf(STYLES, s)).join(", ") || "-"],
     ["계절", item.season.map((s) => labelOf(SEASONS, s)).join(" · ") || "-"],

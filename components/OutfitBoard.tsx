@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import type { Selection } from "@/lib/styling";
 import type { RenderOptions, Slot, WardrobeItem } from "@/lib/types";
 import { ItemVisual } from "./ItemVisual";
@@ -5,19 +6,28 @@ import { ItemVisual } from "./ItemVisual";
 /**
  * Outfit thumbnail as a flat-lay of the real garment images (no mannequin).
  * Used by Home, My Outfits, item detail, the stylist and the save sheet.
- * The interactive 3D view lives only in the Outfit Builder.
+ * With `photo` (the outfit's AI try-on render) the render is shown instead.
  */
 export function OutfitBoard({
   sel,
+  photo,
   className = "",
   aspect = "aspect-[3/4]",
 }: {
   sel: Selection;
+  photo?: string | null;
   /** kept for call-site compatibility; flat-lay ignores render options */
   render?: RenderOptions | null;
   className?: string;
   aspect?: string;
 }) {
+  if (photo)
+    return (
+      <div className={`relative ${aspect} w-full overflow-hidden rounded-md bg-stage ${className}`}>
+        <img src={photo} alt="" draggable={false} className="h-full w-full object-cover" />
+        <span className="absolute left-1.5 top-1.5 rounded bg-paper/85 px-1 py-px text-[8.5px] font-bold tracking-[0.08em] text-ink-2">AI</span>
+      </div>
+    );
   const main = [sel.outer, sel.top, sel.bottom].filter(Boolean) as WardrobeItem[];
   const small = [sel.shoes, sel.acc].filter(Boolean) as WardrobeItem[];
   return (

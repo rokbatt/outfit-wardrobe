@@ -1,7 +1,21 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { CutoutStatus, NewOutfit, NewWardrobeItem, Outfit, OutfitItemRef, Placement, Preferences, WardrobeItem, WearLog } from "../types";
+import type {
+  CutoutStatus,
+  NewOutfit,
+  NewWardrobeItem,
+  Outfit,
+  OutfitItemRef,
+  PersonImage,
+  PersonKind,
+  Placement,
+  Preferences,
+  TryOnMeta,
+  TryOnRender,
+  WardrobeItem,
+  WearLog,
+} from "../types";
 import { applyOutfitWearStats, applyWearStats, DEFAULT_PREFS, uid, type CutoutInput, type Repo } from "./types";
 
 const BUCKET = "wardrobe";
@@ -9,6 +23,8 @@ const BASE_COLS =
   "id,image_path,name,category,subcategory,color,secondary_color,pattern,material,fit,style,season,gender,brand,formality,notes,ai_raw,wear_count,last_worn_at,created_at,updated_at";
 // Added by migrations/002_mannequin.sql
 const GARMENT_COLS = "cutout_path,cutout_status,anchor_x,anchor_y,garment_scale,garment_rotation,layer_order";
+// Added by migrations/003_tryon.sql (user_preferences)
+const PERSON_COLS: Record<PersonKind, "body_photo_path" | "base_model_path"> = { photo: "body_photo_path", model: "base_model_path" };
 
 type ItemRow = Omit<WardrobeItem, "image_url" | "cutout_url" | "cutout_status" | "placement"> & {
   image_path: string | null;
@@ -19,6 +35,7 @@ type ItemRow = Omit<WardrobeItem, "image_url" | "cutout_url" | "cutout_status" |
   garment_scale?: number | null;
   garment_rotation?: number | null;
   layer_order?: number | null;
+  garment_scale_y?: number | null;
 };
 
 function must<T>(res: { data: T | null; error: { message: string } | null }): T {
@@ -27,7 +44,7 @@ function must<T>(res: { data: T | null; error: { message: string } | null }): T 
 }
 
 /** placement ⇄ flat columns */
-function placementToCols(p: Placement | null | undefined) {
+function placementToCols(p: Placement | null | undefined, withScaleY: boolean) {
   if (p === undefined) return {};
   return {
     anchor_x: p?.x ?? null,
@@ -35,11 +52,19 @@ function placementToCols(p: Placement | null | undefined) {
     garment_scale: p?.scale ?? null,
     garment_rotation: p?.rotation ?? null,
     layer_order: p?.layer ?? null,
+    ...(withScaleY && { garment_scale_y: p?.scale_y ?? null }),
   };
 }
 function colsToPlacement(r: ItemRow): Placement | null {
   if (r.anchor_x == null && r.anchor_y == null && r.garment_scale == null && r.garment_rotation == null && r.layer_order == null) return null;
-  return { x: r.anchor_x ?? 0, y: r.anchor_y ?? 0, scale: r.garment_scale ?? 1, rotation: r.garment_rotation ?? 0, layer: r.layer_order ?? null };
+  return {
+    x: r.anchor_x ?? 0,
+    y: r.anchor_y ?? 0,
+    scale: r.garment_scale ?? 1,
+    scale_y: r.garment_scale_y ?? null,
+    rotation: r.garment_rotation ?? 0,
+    layer: r.layer_order ?? null,
+  };
 }
 
 export class SupabaseRepo implements Repo {
@@ -49,16 +74,56 @@ export class SupabaseRepo implements Repo {
   private signed = new Map<string, { url: string; exp: number }>();
   /** true when migration 002 has not been applied yet — app keeps working without mannequin fields */
   private legacy = false;
+  /** false when migration 003 has not been applied — try-on renders are then kept in memory only */
+  private tryon = false;
+  private memTryOn = new Map<string, TryOnRender>();
+  private memPerson = new Map<PersonKind, PersonImage>();
 
   constructor(url: string, anonKey: string) {
     this.sb = createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true } });
   }
 
+  /** false when migration 004 has not been applied — hem length and lookbook height scale are then not stored */
+  private hemCol = false;
+
   private get itemCols() {
-    return this.legacy ? BASE_COLS : `${BASE_COLS},${GARMENT_COLS}`;
+    if (this.legacy) return `${BASE_COLS}${this.hemCol ? ",hem_length" : ""}`;
+    return `${BASE_COLS},${GARMENT_COLS}${this.hemCol ? ",hem_length,garment_scale_y" : ""}`;
   }
   private get outfitCols() {
-    return this.legacy ? "id,name,occasion,style,source,note,created_at" : "id,name,occasion,style,source,note,created_at,outfit_date,render";
+    if (this.legacy) return "id,name,occasion,style,source,note,created_at";
+    return `id,name,occasion,style,source,note,created_at,outfit_date,render${this.tryon ? ",tryon_key" : ""}`;
+  }
+
+  /** The signed-in account (anonymous until an email is linked). */
+  get account() {
+    return this.userId;
+  }
+  async accountInfo(): Promise<{ id: string; email: string | null; anonymous: boolean }> {
+    const { data } = await this.sb.auth.getUser();
+    const u = data.user;
+    return { id: this.userId, email: u?.email ?? null, anonymous: !!u?.is_anonymous };
+  }
+  /**
+   * Turn the anonymous account into an email + password one, keeping all its data.
+   * Works in one go when "Confirm email" is off (Authentication → Providers → Email);
+   * with it on, Supabase first mails a link and the password is set after it is clicked.
+   */
+  async linkEmail(email: string, password: string): Promise<"linked" | "confirm"> {
+    const r1 = await this.sb.auth.updateUser({ email });
+    if (r1.error) throw new Error(r1.error.message);
+    if (!r1.data.user?.email) return "confirm";
+    const r2 = await this.sb.auth.updateUser({ password });
+    if (r2.error) throw new Error(r2.error.message);
+    return "linked";
+  }
+  /** Sign in to an existing email account (another browser / after clearing site data). */
+  async signIn(email: string, password: string) {
+    const { error } = await this.sb.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+  }
+  async signOut() {
+    await this.sb.auth.signOut();
   }
 
   async init() {
@@ -77,6 +142,13 @@ export class SupabaseRepo implements Repo {
       this.legacy = true;
       console.warn("[closet] migrations/002_mannequin.sql 미적용 — 누끼·마네킹 위치 저장이 비활성화됩니다.", probe.error.message);
     }
+    const probe3 = await this.sb.from("outfits").select("tryon_key").limit(1);
+    this.tryon = !probe3.error;
+    if (probe3.error)
+      console.warn("[closet] migrations/003_tryon.sql 미적용 — AI 착용 이미지는 저장되지 않고 이번 세션에만 유지됩니다.", probe3.error.message);
+    const probe4 = await this.sb.from("wardrobe_items").select("hem_length").limit(1);
+    this.hemCol = !probe4.error;
+    if (probe4.error) console.warn("[closet] migrations/004_hem_length.sql 미적용 — 반바지 기장이 저장되지 않습니다.", probe4.error.message);
   }
 
   private async resolveUrls(paths: string[]): Promise<Map<string, string>> {
@@ -106,9 +178,10 @@ export class SupabaseRepo implements Repo {
     const paths = rows.flatMap((r) => [r.image_path, r.cutout_path]).filter((p): p is string => !!p);
     const urls = await this.resolveUrls(paths);
     return rows.map((r) => {
-      const { image_path, cutout_path, cutout_status, anchor_x: _ax, anchor_y: _ay, garment_scale: _gs, garment_rotation: _gr, layer_order: _lo, ...rest } = r;
+      const { image_path, cutout_path, cutout_status, anchor_x: _ax, anchor_y: _ay, garment_scale: _gs, garment_rotation: _gr, layer_order: _lo, garment_scale_y: _gy, ...rest } = r;
       return {
         ...rest,
+        hem_length: rest.hem_length ?? null,
         image_url: image_path ? urls.get(image_path) ?? null : null,
         cutout_url: cutout_path ? urls.get(cutout_path) ?? null : null,
         cutout_status: cutout_status ?? null,
@@ -127,8 +200,9 @@ export class SupabaseRepo implements Repo {
 
   /** NewWardrobeItem → DB row (placement flattened; dropped in legacy mode). */
   private toRow(input: Partial<NewWardrobeItem>) {
-    const { placement, ...rest } = input;
-    return this.legacy ? rest : { ...rest, ...placementToCols(placement) };
+    const { placement, hem_length, ...rest } = input;
+    const row = { ...rest, ...(this.hemCol && hem_length !== undefined && { hem_length }) };
+    return this.legacy ? row : { ...row, ...placementToCols(placement, this.hemCol) };
   }
 
   async listItems() {
@@ -211,18 +285,47 @@ export class SupabaseRepo implements Repo {
         .order("created_at", { ascending: false }),
       this.listWearLogs(),
     ]);
-    type Row = Omit<Outfit, "items" | "wear_count" | "last_worn_at"> & {
+    type Row = Omit<Outfit, "items" | "wear_count" | "last_worn_at" | "tryon_key" | "tryon_url"> & {
+      tryon_key?: string | null;
       outfit_items: (OutfitItemRef & { position: number })[];
     };
-    const outfits: Outfit[] = (must(rows) as unknown as Row[]).map(({ outfit_items, ...o }) => ({
+    const list = must(rows) as unknown as Row[];
+    const renders = await this.tryOnUrls(list.map((o) => o.tryon_key));
+    const outfits: Outfit[] = list.map(({ outfit_items, ...o }) => ({
       ...o,
       outfit_date: o.outfit_date ?? null,
       render: o.render ?? null,
+      tryon_key: o.tryon_key ?? null,
+      tryon_url: o.tryon_key ? renders.get(o.tryon_key) ?? null : null,
       items: [...outfit_items].sort((a, b) => a.position - b.position).map(({ wardrobe_item_id, slot }) => ({ wardrobe_item_id, slot })),
       wear_count: 0,
       last_worn_at: null,
     }));
     return applyOutfitWearStats(outfits, logs);
+  }
+
+  /** cache_key → display URL for the given try-on renders. */
+  private async tryOnUrls(keys: (string | null | undefined)[]): Promise<Map<string, string>> {
+    const want = [...new Set(keys.filter((k): k is string => !!k))];
+    const out = new Map<string, string>();
+    if (!want.length) return out;
+    if (!this.tryon) {
+      for (const k of want) {
+        const m = this.memTryOn.get(k);
+        if (m) out.set(k, m.url);
+      }
+      return out;
+    }
+    const rows = must(await this.sb.from("tryon_renders").select("cache_key,image_path").in("cache_key", want)) as {
+      cache_key: string;
+      image_path: string;
+    }[];
+    const urls = await this.resolveUrls(rows.map((r) => r.image_path));
+    for (const r of rows) {
+      const u = urls.get(r.image_path);
+      if (u) out.set(r.cache_key, u);
+    }
+    return out;
   }
 
   private async writeOutfitItems(outfitId: string, items: OutfitItemRef[]) {
@@ -236,18 +339,27 @@ export class SupabaseRepo implements Repo {
   }
 
   private outfitRow(p: Partial<NewOutfit>) {
-    const { items: _i, outfit_date, render, ...rest } = p;
-    return this.legacy ? rest : { ...rest, ...(outfit_date !== undefined && { outfit_date }), ...(render !== undefined && { render }) };
+    const { items: _i, outfit_date, render, tryon_key, ...rest } = p;
+    if (this.legacy) return rest;
+    return {
+      ...rest,
+      ...(outfit_date !== undefined && { outfit_date }),
+      ...(render !== undefined && { render }),
+      ...(this.tryon && tryon_key !== undefined && { tryon_key }),
+    };
   }
 
   async createOutfit(input: NewOutfit) {
     const { items } = input;
     const row = must(await this.sb.from("outfits").insert(this.outfitRow(input)).select(this.outfitCols).single()) as unknown as Omit<
       Outfit,
-      "items" | "wear_count" | "last_worn_at"
-    >;
+      "items" | "wear_count" | "last_worn_at" | "tryon_key" | "tryon_url"
+    > & { tryon_key?: string | null };
     await this.writeOutfitItems(row.id, items);
-    return { ...row, outfit_date: row.outfit_date ?? null, render: row.render ?? null, items, wear_count: 0, last_worn_at: null };
+    // Without migration 003 the link isn't stored; keep it for this session so the new card still shows the render.
+    const tryon_key = row.tryon_key ?? (this.tryon ? null : input.tryon_key ?? null);
+    const tryon_url = tryon_key ? (await this.tryOnUrls([tryon_key])).get(tryon_key) ?? null : null;
+    return { ...row, outfit_date: row.outfit_date ?? null, render: row.render ?? null, tryon_key, tryon_url, items, wear_count: 0, last_worn_at: null };
   }
 
   async updateOutfit(id: string, patch: Partial<NewOutfit>) {
@@ -288,13 +400,98 @@ export class SupabaseRepo implements Repo {
 
   async getPreferences(): Promise<Preferences> {
     const res = await this.sb.from("user_preferences").select("*").eq("user_id", this.userId).maybeSingle();
-    const row = must(res) as (Preferences & { user_id: string; updated_at: string }) | null;
+    type Row = Preferences & {
+      user_id: string;
+      updated_at: string;
+      body_photo_path?: string | null;
+      base_model_path?: string | null;
+      base_model_sig?: string | null;
+    };
+    const row = must(res) as Row | null;
     if (!row) return { ...DEFAULT_PREFS };
-    const { user_id: _u, updated_at: _t, ...p } = row;
+    // try-on person columns are managed by get/setPerson, not part of Preferences
+    const { user_id: _u, updated_at: _t, body_photo_path: _b, base_model_path: _m, base_model_sig: _s, ...p } = row;
     return { ...DEFAULT_PREFS, ...p };
   }
 
   async savePreferences(p: Preferences) {
     must(await this.sb.from("user_preferences").upsert({ ...p, user_id: this.userId, updated_at: new Date().toISOString() }));
+  }
+
+  async getPerson(kind: PersonKind): Promise<PersonImage | null> {
+    if (!this.tryon) return this.memPerson.get(kind) ?? null;
+    const col = PERSON_COLS[kind];
+    const row = must(
+      await this.sb.from("user_preferences").select(`${col},base_model_sig,updated_at`).eq("user_id", this.userId).maybeSingle(),
+    ) as Record<string, string | null> | null;
+    const path = row?.[col];
+    if (!row || !path) return null;
+    const url = (await this.resolveUrls([path])).get(path);
+    if (!url) return null;
+    // The storage path is unique per upload, so it doubles as the person id in the cache key.
+    return { kind, id: path, url, sig: kind === "model" ? row.base_model_sig ?? null : null, created_at: row.updated_at ?? "" };
+  }
+
+  async setPerson(kind: PersonKind, blob: Blob | null, sig: string | null = null): Promise<PersonImage | null> {
+    if (!this.tryon) {
+      // Without migration 003 only the generated model is kept, for this session.
+      if (kind === "photo" && blob) throw new Error("Supabase에 migrations/003_tryon.sql을 먼저 적용해 주세요");
+      if (!blob) {
+        this.memPerson.delete(kind);
+        return null;
+      }
+      const p: PersonImage = { kind, id: `${kind}-${uid()}`, url: URL.createObjectURL(blob), sig, created_at: new Date().toISOString() };
+      this.memPerson.set(kind, p);
+      return p;
+    }
+    const col = PERSON_COLS[kind];
+    const cur = must(await this.sb.from("user_preferences").select(col).eq("user_id", this.userId).maybeSingle()) as Record<
+      string,
+      string | null
+    > | null;
+    let path: string | null = null;
+    if (blob) {
+      const ext = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg";
+      path = `${this.userId}/person/${kind}-${uid().slice(0, 8)}.${ext}`;
+      must(await this.sb.storage.from(BUCKET).upload(path, blob, { contentType: blob.type, upsert: false }));
+    }
+    const patch: Record<string, unknown> = { user_id: this.userId, [col]: path, updated_at: new Date().toISOString() };
+    if (kind === "model") patch.base_model_sig = path ? sig : null;
+    must(await this.sb.from("user_preferences").upsert(patch));
+    const old = cur?.[col];
+    if (old) await this.sb.storage.from(BUCKET).remove([old]);
+    return path ? this.getPerson(kind) : null;
+  }
+
+  async getTryOn(key: string): Promise<TryOnRender | null> {
+    if (!this.tryon) return this.memTryOn.get(key) ?? null;
+    const row = must(await this.sb.from("tryon_renders").select("image_path,created_at").eq("cache_key", key).maybeSingle()) as {
+      image_path: string;
+      created_at: string;
+    } | null;
+    if (!row) return null;
+    const url = (await this.resolveUrls([row.image_path])).get(row.image_path);
+    return url ? { key, url, created_at: row.created_at } : null;
+  }
+
+  async putTryOn(key: string, image: Blob, meta: TryOnMeta): Promise<TryOnRender> {
+    if (!this.tryon) {
+      const r = { key, url: URL.createObjectURL(image), created_at: new Date().toISOString() };
+      this.memTryOn.set(key, r);
+      return r;
+    }
+    const ext = image.type === "image/jpeg" ? "jpg" : image.type === "image/webp" ? "webp" : "png";
+    const image_path = `${this.userId}/tryon/${key}.${ext}`;
+    must(await this.sb.storage.from(BUCKET).upload(image_path, image, { contentType: image.type, upsert: true }));
+    this.signed.delete(image_path);
+    must(
+      await this.sb
+        .from("tryon_renders")
+        .upsert(
+          { cache_key: key, image_path, person_ref: meta.person_id, item_ids: meta.item_ids, model: meta.model, cost_usd: meta.cost_usd },
+          { onConflict: "user_id,cache_key" },
+        ),
+    );
+    return (await this.getTryOn(key))!;
   }
 }

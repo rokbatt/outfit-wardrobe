@@ -2,7 +2,7 @@ import type { NewWardrobeItem } from "./types";
 
 type S = NewWardrobeItem & { key: string };
 
-const base = { secondary_color: null, material: null, gender: "unisex", brand: null, notes: null, ai_raw: null, placement: null };
+const base = { secondary_color: null, material: null, hem_length: null, gender: "unisex", brand: null, notes: null, ai_raw: null, placement: null };
 
 /** Demo wardrobe — rendered with GarmentGlyph (no photos needed). */
 export const SAMPLE_ITEMS: S[] = [

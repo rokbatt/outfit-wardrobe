@@ -293,7 +293,7 @@ export default function Home() {
               <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6 lg:mx-0 lg:grid lg:grid-cols-6 lg:px-0">
                 {outfits.slice(0, 12).map((o) => (
                   <Link key={o.id} href={`/outfit?outfit=${o.id}`} className="w-[128px] shrink-0 lg:w-auto">
-                    <OutfitBoard sel={selFromRefs(o.items, itemById)} render={o.render} />
+                    <OutfitBoard sel={selFromRefs(o.items, itemById)} render={o.render} photo={o.tryon_url} />
                     <p className="mt-1.5 truncate text-[12px] font-semibold">{o.name}</p>
                   </Link>
                 ))}

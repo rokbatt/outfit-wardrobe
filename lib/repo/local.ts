@@ -1,6 +1,18 @@
 "use client";
 
-import type { CutoutStatus, NewOutfit, NewWardrobeItem, Outfit, Preferences, WardrobeItem, WearLog } from "../types";
+import type {
+  CutoutStatus,
+  NewOutfit,
+  NewWardrobeItem,
+  Outfit,
+  PersonImage,
+  PersonKind,
+  Preferences,
+  TryOnMeta,
+  TryOnRender,
+  WardrobeItem,
+  WearLog,
+} from "../types";
 import { applyOutfitWearStats, applyWearStats, DEFAULT_PREFS, uid, type CutoutInput, type Repo } from "./types";
 
 const DB_NAME = "closet";
@@ -26,6 +38,12 @@ type StoredItem = Omit<WardrobeItem, "image_url" | "cutout_url" | "cutout_status
   cutout_status?: CutoutStatus;
 };
 const CUT = (id: string) => `${id}:cut`;
+// Try-on assets share the images / kv stores (no schema bump): blob in images, metadata in kv.
+const PERSON = (k: PersonKind) => `person:${k}`;
+const TRYON = (key: string) => `tryon:${key}`;
+type StoredPerson = Omit<PersonImage, "url">;
+type StoredTryOn = TryOnMeta & { key: string; created_at: string };
+type StoredOutfit = Omit<Outfit, "tryon_key" | "tryon_url"> & { tryon_key?: string | null };
 
 export class LocalRepo implements Repo {
   kind = "local" as const;
@@ -78,6 +96,7 @@ export class LocalRepo implements Repo {
     return {
       ...rest,
       placement: rest.placement ?? null, // older rows predate placement
+      hem_length: rest.hem_length ?? null, // … and hem length
       image_url: has_image ? await this.imageUrl(s.id) : null,
       cutout_url: has_cutout ? await this.imageUrl(CUT(s.id)) : null,
       cutout_status: cutout_status ?? null,
@@ -167,21 +186,31 @@ export class LocalRepo implements Repo {
   }
 
   async listOutfits() {
-    const [outfits, logs] = await Promise.all([this.all<Outfit>("outfits"), this.all<WearLog>("wear_logs")]);
-    const norm = outfits.map((o) => ({ ...o, outfit_date: o.outfit_date ?? null, render: o.render ?? null }));
+    const [outfits, logs] = await Promise.all([this.all<StoredOutfit>("outfits"), this.all<WearLog>("wear_logs")]);
+    const norm = await Promise.all(outfits.map((o) => this.hydrateOutfit(o)));
     return applyOutfitWearStats(norm, logs).sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
+  private async hydrateOutfit(o: StoredOutfit): Promise<Outfit> {
+    const tryon_key = o.tryon_key ?? null; // older rows predate try-on
+    return {
+      ...o,
+      outfit_date: o.outfit_date ?? null,
+      render: o.render ?? null,
+      tryon_key,
+      tryon_url: tryon_key ? await this.imageUrl(TRYON(tryon_key)) : null,
+    };
+  }
   async createOutfit(input: NewOutfit) {
-    const o: Outfit = { ...input, id: uid(), created_at: new Date().toISOString(), last_worn_at: null, wear_count: 0 };
+    const o: StoredOutfit = { ...input, id: uid(), created_at: new Date().toISOString(), last_worn_at: null, wear_count: 0 };
     await this.put("outfits", o.id, o);
-    return o;
+    return this.hydrateOutfit(o);
   }
   async updateOutfit(id: string, patch: Partial<NewOutfit>) {
-    const cur = await this.get<Outfit>("outfits", id);
+    const cur = await this.get<StoredOutfit>("outfits", id);
     if (!cur) throw new Error("outfit not found");
-    const next = { ...cur, ...patch };
+    const next: StoredOutfit = { ...cur, ...patch };
     await this.put("outfits", id, next);
-    return next;
+    return this.hydrateOutfit(next);
   }
   async deleteOutfit(id: string) {
     await this.del("outfits", id);
@@ -207,5 +236,36 @@ export class LocalRepo implements Repo {
   }
   async savePreferences(p: Preferences) {
     await this.put("kv", "prefs", p);
+  }
+
+  async getPerson(kind: PersonKind) {
+    const meta = await this.get<StoredPerson>("kv", PERSON(kind));
+    const url = meta ? await this.imageUrl(PERSON(kind)) : null;
+    return meta && url ? { ...meta, url } : null;
+  }
+  async setPerson(kind: PersonKind, blob: Blob | null, sig: string | null = null) {
+    this.dropUrl(PERSON(kind));
+    if (!blob) {
+      await this.del("images", PERSON(kind));
+      await this.del("kv", PERSON(kind));
+      return null;
+    }
+    const meta: StoredPerson = { kind, id: `${kind}-${uid()}`, sig, created_at: new Date().toISOString() };
+    await this.put("images", PERSON(kind), blob);
+    await this.put("kv", PERSON(kind), meta);
+    return { ...meta, url: (await this.imageUrl(PERSON(kind)))! };
+  }
+
+  async getTryOn(key: string): Promise<TryOnRender | null> {
+    const meta = await this.get<StoredTryOn>("kv", TRYON(key));
+    const url = meta ? await this.imageUrl(TRYON(key)) : null;
+    return meta && url ? { key, url, created_at: meta.created_at } : null;
+  }
+  async putTryOn(key: string, image: Blob, meta: TryOnMeta) {
+    const stored: StoredTryOn = { ...meta, key, created_at: new Date().toISOString() };
+    this.dropUrl(TRYON(key));
+    await this.put("images", TRYON(key), image);
+    await this.put("kv", TRYON(key), stored);
+    return { key, url: (await this.imageUrl(TRYON(key)))!, created_at: stored.created_at };
   }
 }

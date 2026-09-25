@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useStore } from "@/lib/store";
 import { useCutoutBackfill } from "@/lib/useCutoutBackfill";
+import { LocalImportBanner } from "./CloudAccount";
 import { IconBookmark, IconHanger, IconHome, IconLayers, IconStylist, IconUser } from "./icons";
 
 const SIDE = [
@@ -76,6 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="min-w-0 flex-1">
         {error && <div className="bg-danger px-4 py-2 text-center text-[12.5px] text-white">저장소 연결 오류: {error}</div>}
         <div className={`mx-auto w-full max-w-[1240px] px-4 sm:px-6 lg:px-8 ${hideNav ? "pb-10" : "pb-24 lg:pb-12"} pt-3 lg:pt-7`}>
+          {!hideNav && <LocalImportBanner />}
           {children}
         </div>
       </main>

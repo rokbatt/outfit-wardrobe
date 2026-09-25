@@ -46,7 +46,7 @@
 | `/add` | 옷 추가 — 촬영/업로드 → 처리 → 분석 → 확인 → 저장 (+ 연속 등록) | 1 |
 | `/wardrobe` | 전체 옷장 — 카테고리 탭, 색상·계절·스타일·정렬 필터, 그리드 | 1 |
 | `/wardrobe/[id]` | 옷 상세 — 이미지, 태그, 착용 통계, 편집/삭제, 이 옷으로 코디하기 | 1 |
-| `/outfit` | OUTFIT BUILDER — 3D 아바타(회전·줌) + 카테고리별 옷 선택, 랜덤, 저장, AI TRY-ON (→ `docs/OUTFIT_3D.md`) | 1 |
+| `/outfit` | OUTFIT BUILDER — 2D 룩북(누끼 스택, 줄별 스와이프) + 카테고리별 옷 선택, 랜덤, 저장, 버튼식 AI TRY-ON (Gemini) | 1 |
 | `/outfits` | MY OUTFITS — 상황별 필터, 불러오기/입기/삭제 | 1 |
 | `/ai` | AI STYLIST — 조건 입력 → 3개 코디 + 이유 | 2 |
 | `/profile` | 프로필/선호 — 성별, 체형(선택형), 선호 핏·스타일·색, 피할 색, 난이도 | 1 |
@@ -164,7 +164,10 @@ Phase 2 옵션: `@imgly/background-removal` (브라우저 WASM, 서버 비용 0)
 
 # v2 · Outfit Builder
 
-> 2D 레이어드 마네킹(SVG + 옷 이미지 z-index)은 **폐기**되었다. 3D 빌더 + AI Try-On 구조는 `docs/OUTFIT_3D.md` 참고.
+> 2D 레이어드 마네킹(SVG + 옷 이미지 z-index)과 3D 파라메트릭 아바타(three.js)는 모두 **폐기**되었다.
+> 사진에서 옷별 3D 메쉬를 만들 수 없어 3D 옷이 템플릿 + 색으로만 표현되는 구조적 한계 때문.
+> 현재: 기본 화면 = 누끼를 (아우터+상의) → 하의 → 신발 순으로 쌓은 **2D 룩북**(`components/LookbookStage.tsx`),
+> 사실적인 착용 = **AI TRY-ON 버튼을 누를 때만** Gemini 이미지 생성(`app/api/tryon`, `lib/tryon.ts`, 캐시 = migration 003).
 > `placement`/`anchor_*` 필드와 `render.tuck/openOuter` 는 기존 데이터 호환을 위해 남아 있지만 더 이상 렌더링에 쓰이지 않는다.
 
 ## 배경 제거 파이프라인 (`lib/cutout.ts`)

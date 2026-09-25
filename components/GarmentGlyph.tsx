@@ -25,7 +25,7 @@ function kindOf(category: Category, sub: string, fit?: string | null): Kind {
     return "long";
   }
   if (category === "bottom") {
-    if (/쇼츠|반바지/.test(s)) return "shorts";
+    if (/쇼츠|반바지|버뮤다/.test(s)) return "shorts";
     if (/스커트/.test(s)) return "skirt";
     if (/와이드|카고/.test(s) || fit === "wide" || fit === "relaxed" || fit === "oversized") return "wide";
     return "pants";
@@ -59,6 +59,12 @@ const TIGHT: Record<Kind, string> = {
   sneaker: "13 43 78 44", loafer: "11 53 80 34", boot: "21 33 70 58", sandal: "13 51 78 34",
   cap: "23 37 74 44", bag: "17 23 66 90", belt: "7 54 86 20", watch: "34 23 32 86", misc: "25 39 50 58",
 };
+
+/** width / height of the tight silhouette — lets the lookbook stack glyphs like trimmed cutouts. */
+export function glyphAspect(category: Category, subcategory: string, fit?: string | null) {
+  const [, , w, h] = TIGHT[kindOf(category, subcategory, fit)].split(" ").map(Number);
+  return w / h;
+}
 
 /** Flat-lay silhouette — only for items without any photo (demo data). */
 export function GarmentGlyph({

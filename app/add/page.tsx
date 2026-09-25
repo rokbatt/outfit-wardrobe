@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { GarmentGlyph } from "@/components/GarmentGlyph";
-import { IconBack, IconCamera, IconCheck, IconImage } from "@/components/icons";
+import { IconBack, IconCamera, IconCheck, IconClipboard, IconImage } from "@/components/icons";
 import { autoName, blankItem, ItemForm } from "@/components/ItemForm";
 import { makeCutout, type CutoutOutcome } from "@/lib/cutout";
 import { processImage, type ProcessedImage } from "@/lib/image";
@@ -126,12 +126,43 @@ function AddFlow() {
     setForm(v);
   };
 
-  const pickFiles = (files: FileList | null) => {
-    if (!files?.length) return;
+  const pickFiles = (files: FileList | File[] | null) => {
+    if (!files?.length) return 0;
     // Copy now: the FileList is emptied when the input is reset right after this call.
     const picked = Array.from(files).filter((f) => f.type.startsWith("image/") || /\.(heic|heif)$/i.test(f.name));
+    if (!picked.length) return 0;
     setManual(false);
     setQueue((q) => [...q, ...picked]);
+    return picked.length;
+  };
+
+  // Paste (Ctrl/⌘+V) a copied image or screenshot anywhere on the page. Text pastes into fields are left alone.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
+      if (!files.length) return;
+      e.preventDefault();
+      const n = pickFiles(files);
+      if (n) toast(n > 1 ? `사진 ${n}장을 붙여넣었어요` : "사진을 붙여넣었어요");
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Button path (touch devices / no shortcut): read images straight from the clipboard. */
+  const pasteFromClipboard = async () => {
+    try {
+      if (!navigator.clipboard?.read) throw new Error("unsupported");
+      const files: File[] = [];
+      for (const entry of await navigator.clipboard.read()) {
+        const type = entry.types.find((t) => t.startsWith("image/"));
+        if (type) files.push(new File([await entry.getType(type)], `pasted-${Date.now()}.${type.split("/")[1]}`, { type }));
+      }
+      if (!pickFiles(files)) toast("클립보드에 이미지가 없어요. 사진이나 스크린샷을 복사한 뒤 다시 눌러주세요");
+    } catch {
+      toast("이 브라우저에서는 버튼으로 붙여넣을 수 없어요. Ctrl+V(⌘+V)로 붙여넣어 주세요");
+    }
   };
 
   const save = async () => {
@@ -216,6 +247,14 @@ function AddFlow() {
               <span className="text-[12px] text-mute">여러 장 선택 가능</span>
             </button>
           </div>
+          <button
+            onClick={pasteFromClipboard}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-line-2 py-3.5 text-[13px] font-semibold text-ink-2 transition hover:border-ink active:scale-[0.99]"
+          >
+            <IconClipboard width={17} height={17} />
+            클립보드에서 붙여넣기
+            <span className="hidden font-normal text-mute sm:inline">· Ctrl+V / ⌘V</span>
+          </button>
           <button
             onClick={() => {
               setManual(true);

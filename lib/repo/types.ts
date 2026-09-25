@@ -3,7 +3,11 @@ import type {
   NewOutfit,
   NewWardrobeItem,
   Outfit,
+  PersonImage,
+  PersonKind,
   Preferences,
+  TryOnMeta,
+  TryOnRender,
   WardrobeItem,
   WearLog,
 } from "../types";
@@ -35,6 +39,13 @@ export interface Repo {
 
   getPreferences(): Promise<Preferences>;
   savePreferences(p: Preferences): Promise<void>;
+
+  /** AI try-on reference person. blob null → remove. */
+  getPerson(kind: PersonKind): Promise<PersonImage | null>;
+  setPerson(kind: PersonKind, blob: Blob | null, sig?: string | null): Promise<PersonImage | null>;
+  /** AI try-on render cache, keyed by lib/tryon cacheKey(). */
+  getTryOn(key: string): Promise<TryOnRender | null>;
+  putTryOn(key: string, image: Blob, meta: TryOnMeta): Promise<TryOnRender>;
 }
 
 export interface CutoutInput {

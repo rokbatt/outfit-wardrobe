@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+/* eslint-disable @next/next/no-img-element */
+import { useEffect, useRef, useState } from "react";
 import { ChipGroup, ColorPicker, Field, Loading, PageHeader, Sheet } from "@/components/ui";
+import { AccountSection } from "@/components/CloudAccount";
+import { processImage } from "@/lib/image";
 import { DEFAULT_PREFS } from "@/lib/repo/types";
 import { useStore } from "@/lib/store";
 import { ACTIVITIES, BODY_TYPES, COLORS, DIFFICULTY, STYLES } from "@/lib/taxonomy";
-import type { Preferences } from "@/lib/types";
+import type { PersonImage, Preferences } from "@/lib/types";
 
 const GENDERS = [
   { key: "men", ko: "남성" },
@@ -19,14 +22,39 @@ const FIT_PREF = [
 ];
 
 export default function ProfilePage() {
-  const { ready, prefs, savePrefs, toast, backend, items, outfits, logs, seedSample } = useStore();
+  const { ready, prefs, savePrefs, toast, backend, items, outfits, logs, seedSample, getPerson, setPerson } = useStore();
   const [p, setP] = useState<Preferences>(DEFAULT_PREFS);
   const [dirty, setDirty] = useState(false);
   const [seedOpen, setSeedOpen] = useState(false);
+  const [bodyPhoto, setBodyPhoto] = useState<PersonImage | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (ready) setP(prefs);
   }, [ready, prefs]);
+
+  useEffect(() => {
+    if (!ready) return;
+    getPerson("photo")
+      .then(setBodyPhoto)
+      .catch(() => setBodyPhoto(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  const changePhoto = async (file: File | null) => {
+    setPhotoBusy(true);
+    try {
+      const blob = file ? (await processImage(file)).blob : null;
+      setBodyPhoto(await setPerson("photo", blob));
+      toast(file ? "전신 사진을 저장했어요" : "전신 사진을 삭제했어요");
+    } catch (e) {
+      toast(`사진 저장 실패: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setPhotoBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   if (!ready) return <Loading />;
 
@@ -76,6 +104,33 @@ export default function ProfilePage() {
         </Field>
         <Field label="체형" hint="여러 개 선택">
           <ChipGroup options={BODY_TYPES.map((b) => ({ key: b, ko: b }))} value={p.body_type} onChange={(v) => set("body_type", (v as string[]) ?? [])} multiple />
+        </Field>
+        <Field label="내 전신 사진" hint="AI 착용용 · 선택">
+          <div className="flex items-start gap-3">
+            <div className="grid aspect-[3/4] w-[84px] shrink-0 place-items-center overflow-hidden rounded-md bg-card">
+              {bodyPhoto ? (
+                <img src={bodyPhoto.url} alt="내 전신 사진" className="h-full w-full object-cover" />
+              ) : (
+                <span className="px-2 text-center text-[11px] leading-snug text-mute">기본 모델 사용</span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] leading-relaxed text-mute">
+                정면 전신 사진을 올리면 AI TRY-ON에서 이 사진에 옷을 입혀요. 없으면 성별·키·체형에 맞춘 기본 모델을 한 번 만들어 써요. 사진은 AI 착용 이미지를 만들 때만 Google Gemini로 전송돼요.
+              </p>
+              <div className="mt-2 flex gap-1.5">
+                <button className="chip" disabled={photoBusy} onClick={() => fileRef.current?.click()}>
+                  {photoBusy ? "저장 중…" : bodyPhoto ? "사진 교체" : "사진 올리기"}
+                </button>
+                {bodyPhoto && (
+                  <button className="chip" disabled={photoBusy} onClick={() => changePhoto(null)}>
+                    삭제
+                  </button>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => changePhoto(e.target.files?.[0] ?? null)} />
+            </div>
+          </div>
         </Field>
         <Field label="선호 핏">
           <ChipGroup options={FIT_PREF} value={p.preferred_fit} onChange={(v) => set("preferred_fit", (v as string) ?? null)} />
@@ -142,6 +197,8 @@ export default function ProfilePage() {
           </p>
         )}
       </section>
+
+      <AccountSection />
 
       <Sheet open={seedOpen} onClose={() => setSeedOpen(false)} title="샘플 옷장 추가">
         <p className="text-[14px] leading-relaxed text-ink-2">체험용 옷 22벌과 착용 기록이 지금 옷장에 더해져요. 나중에 옷별로 삭제할 수 있어요.</p>

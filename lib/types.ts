@@ -12,6 +12,8 @@ export interface WardrobeItem {
   pattern: string;
   material: string | null;
   fit: string | null;
+  /** Shorts / bermudas: where the hem falls (lib/taxonomy HEM_LENGTHS key). null → the type's default */
+  hem_length: string | null;
   style: string[];
   season: Season[];
   gender: string | null;
@@ -36,13 +38,15 @@ export interface WardrobeItem {
 export type CutoutStatus = "ready" | "failed" | "original" | null;
 
 /**
- * Manual placement offset relative to the slot's automatic anchor.
- * x / y: offset in % of mannequin width/height · scale: multiplier · rotation: degrees · layer: z override
+ * Manual size on the 2D lookbook, relative to the automatic layout box.
+ * scale: width × · scale_y: height × · y: top edge offset, as a share of the automatic box height.
+ * Rows without scale_y predate the lookbook (old 3D-mannequin offsets) and are ignored.
  */
 export interface Placement {
   x: number;
   y: number;
   scale: number;
+  scale_y?: number | null;
   rotation: number;
   layer?: number | null;
 }
@@ -67,6 +71,10 @@ export interface Outfit {
   items: OutfitItemRef[];
   outfit_date: string | null; // YYYY-MM-DD
   render: RenderOptions | null;
+  /** AI try-on render linked on save (cache key of lib/tryon). null → flat-lay thumbnail */
+  tryon_key: string | null;
+  /** Resolved URL of that render, filled in by the repo. */
+  tryon_url: string | null;
   created_at: string;
   last_worn_at: string | null;
   wear_count: number;
@@ -81,7 +89,9 @@ export interface RenderOptions {
   body?: Body;
 }
 
-export type NewOutfit = Pick<Outfit, "name" | "occasion" | "style" | "source" | "note" | "items" | "outfit_date" | "render">;
+export type NewOutfit = Pick<Outfit, "name" | "occasion" | "style" | "source" | "note" | "items" | "outfit_date" | "render"> & {
+  tryon_key?: string | null;
+};
 
 export interface WearLog {
   id: string;
@@ -103,6 +113,34 @@ export interface Preferences {
   brands: string;
   activities: string[];
   difficulty: string | null;
+}
+
+/**
+ * Reference person for AI try-on.
+ * photo = the user's own full-body photo (profile) · model = generated default model.
+ */
+export type PersonKind = "photo" | "model";
+export interface PersonImage {
+  kind: PersonKind;
+  /** Changes on every upload / generation → part of the try-on cache key. */
+  id: string;
+  url: string;
+  /** model only: signature of the profile settings it was generated for */
+  sig: string | null;
+  created_at: string;
+}
+
+/** A cached AI try-on render. */
+export interface TryOnRender {
+  key: string;
+  url: string;
+  created_at: string;
+}
+export interface TryOnMeta {
+  person_id: string;
+  item_ids: string[];
+  model: string;
+  cost_usd: number | null;
 }
 
 /** Output of /api/analyze — a draft the user always confirms. */

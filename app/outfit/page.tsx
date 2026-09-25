@@ -1,15 +1,16 @@
 "use client";
 
-import dynamic from "next/dynamic";
+/* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconBack, IconChevronD, IconLock, IconMore, IconPlus, IconShuffle, IconSparkle, IconUnlock } from "@/components/icons";
+import { IconBack, IconChevronD, IconLock, IconPlus, IconShuffle, IconSparkle, IconUnlock } from "@/components/icons";
 import { ItemCard, ItemVisual } from "@/components/ItemVisual";
+import { LookbookStage } from "@/components/LookbookStage";
 import { OutfitBoard } from "@/components/OutfitBoard";
 import { Empty, Loading, Sheet } from "@/components/ui";
-import { bodyFromPrefs, presetFromPrefs } from "@/lib/avatar/body";
 import { todayISO, useStore } from "@/lib/store";
+import { cacheKey, callTryOn, garmentRefs, personSig, selItems, TryOnError, tryOnStatus, urlToRef } from "@/lib/tryon";
 import {
   bySlot,
   combinationStats,
@@ -22,26 +23,17 @@ import {
   type Selection,
 } from "@/lib/styling";
 import { currentSeason, OCCASIONS, SLOTS, STYLES } from "@/lib/taxonomy";
-import type { Body, Outfit, RenderOptions, Slot, WardrobeItem } from "@/lib/types";
-
-// WebGL only exists in the browser.
-const AvatarViewer = dynamic(() => import("@/components/three/AvatarViewer"), {
-  ssr: false,
-  loading: () => (
-    <div className="relative h-full overflow-hidden rounded-lg bg-stage">
-      <div className="shimmer absolute inset-0" />
-    </div>
-  ),
-});
+import type { Outfit, PersonImage, RenderOptions, Slot, TryOnRender, WardrobeItem } from "@/lib/types";
 
 const SLOT_KO: Record<Slot, string> = { outer: "아우터", top: "상의", bottom: "하의", shoes: "신발", acc: "액세서리" };
 const SLOT_EN: Record<Slot, string> = { outer: "OUTER", top: "TOP", bottom: "BOTTOM", shoes: "SHOES", acc: "ACC" };
 const ORDER: Slot[] = ["outer", "top", "bottom", "shoes", "acc"];
-const BODIES: { key: Body; ko: string }[] = [
-  { key: "slim", ko: "SLIM" },
-  { key: "standard", ko: "STANDARD" },
-  { key: "relaxed", ko: "RELAXED" },
-];
+
+/** Version string of the selected pieces (ids + image state) — changes whenever the look or its images change. */
+const lookVersion = (sel: Selection) =>
+  selItems(sel)
+    .map((i) => `${i.id}@${i.updated_at}:${i.cutout_status ?? ""}`)
+    .join("|");
 
 const stripReasons = (g: ReturnType<typeof generateOutfit>): Selection | null => {
   if (!g) return null;
@@ -52,7 +44,7 @@ const stripReasons = (g: ReturnType<typeof generateOutfit>): Selection | null =>
 
 function Builder() {
   const router = useRouter();
-  const { ready, items, outfits, prefs, itemById, saveOutfit, updateOutfit, wear, toast } = useStore();
+  const { ready, items, outfits, prefs, itemById, saveOutfit, updateOutfit, wear, toast, getPerson, setPerson, getTryOn, putTryOn } = useStore();
 
   const groups = useMemo(() => bySlot(items), [items]);
   const [sel, setSel] = useState<Selection>({});
@@ -60,17 +52,32 @@ function Builder() {
   const [locked, setLocked] = useState<Set<Slot>>(new Set());
   const [source, setSource] = useState<Outfit["source"]>("manual");
   const [loaded, setLoaded] = useState<Outfit | null>(null);
-  const [render, setRender] = useState<RenderOptions>({ body: "standard" });
+  // Legacy render keys of a loaded outfit (tuck / openOuter / body) are carried through re-saves untouched.
+  const [render, setRender] = useState<RenderOptions | null>(null);
   const [randomMode, setRandomMode] = useState<"smart" | "pure">("smart");
   const [modeMenu, setModeMenu] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
-  const [optsOpen, setOptsOpen] = useState(false);
   const [why, setWhy] = useState(false);
   const initDone = useRef(false);
   const stripRef = useRef<HTMLDivElement>(null);
 
-  // Parametric avatar: preset (saved with the outfit) + the user's stature.
-  const bodyParams = useMemo(() => bodyFromPrefs(prefs, render.body ?? presetFromPrefs(prefs)), [prefs, render.body]);
+  // ── AI try-on (on demand) ──
+  const [ai, setAi] = useState<{ enabled: boolean; model: string } | null>(null);
+  const [person, setPersonRef] = useState<PersonImage | null>(null); // own photo, or default model matching the profile
+  const [aiImg, setAiImg] = useState<TryOnRender | null>(null); // render of the *current* look, if any
+  const [view, setView] = useState<"2d" | "ai">("2d");
+  const [busy, setBusy] = useState<null | "model" | "tryon">(null);
+  const lookRef = useRef("");
+  // height of the look badges in the stage corner, so the stage keeps its arrows clear of them
+  const badgesRef = useRef<HTMLDivElement>(null);
+  const [badgesH, setBadgesH] = useState(0);
+  useEffect(() => {
+    const el = badgesRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBadgesH(el.offsetTop + el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   // Keep selected pieces in sync with store updates (e.g. a cutout finished in the background).
   useEffect(() => {
@@ -94,8 +101,6 @@ function Builder() {
     const q = new URLSearchParams(window.location.search);
     const oid = q.get("outfit");
     const withId = q.get("with");
-    const baseRender: RenderOptions = { body: presetFromPrefs(prefs) };
-    setRender(baseRender);
     if (oid) {
       const o = outfits.find((x) => x.id === oid);
       if (o) {
@@ -107,8 +112,7 @@ function Builder() {
         setSel(s);
         setLoaded(o);
         setSource(o.source);
-        // keep any legacy render keys (tuck / openOuter) so re-saving doesn't drop them
-        setRender({ ...baseRender, ...(o.render ?? {}) });
+        setRender(o.render);
         return;
       }
     }
@@ -143,7 +147,6 @@ function Builder() {
 
   const list = groups[active];
   const cur = sel[active];
-  const idx = cur ? list.findIndex((x) => x.id === cur.id) : -1;
 
   const setSlot = useCallback((slot: Slot, it: WardrobeItem | undefined) => {
     setSel((s) => {
@@ -155,16 +158,20 @@ function Builder() {
     setSource("manual");
   }, []);
 
-  /** Cycle the active slot through its items; index -1 = none. */
-  const step = useCallback(
-    (d: 1 | -1) => {
-      if (!list.length) return;
-      const n = list.length + 1;
-      const next = ((((idx + 1 + d) % n) + n) % n) - 1;
-      setSlot(active, next === -1 ? undefined : list[next]);
+  /** Cycle a slot through its items; index -1 = none. */
+  const stepSlot = useCallback(
+    (slot: Slot, d: 1 | -1) => {
+      const l = groups[slot];
+      if (!l.length) return;
+      const i = sel[slot] ? l.findIndex((x) => x.id === sel[slot]!.id) : -1;
+      const n = l.length + 1;
+      const next = ((((i + 1 + d) % n) + n) % n) - 1;
+      setSlot(slot, next === -1 ? undefined : l[next]);
+      setActive(slot);
     },
-    [list, idx, active, setSlot],
+    [groups, sel, setSlot],
   );
+  const step = (d: 1 | -1) => stepSlot(active, d);
 
   const toggleLock = (s: Slot) =>
     setLocked((l) => {
@@ -194,7 +201,88 @@ function Builder() {
     }
   };
 
-  const tryOn = () => toast("AI TRY-ON은 다음 단계(Phase 6)에서 연결돼요");
+  /* ─────────── AI try-on ─────────── */
+
+  useEffect(() => {
+    tryOnStatus().then(setAi);
+  }, []);
+
+  // Reference person: the profile's own full-body photo, else the default model generated for these profile settings.
+  const profileSig = personSig(prefs);
+  useEffect(() => {
+    if (!ready || !ai?.enabled) return;
+    let alive = true;
+    (async () => {
+      const photo = await getPerson("photo").catch(() => null);
+      const p = photo ?? (await getPerson("model").catch(() => null));
+      if (alive) setPersonRef(p && (p.kind === "photo" || p.sig === profileSig) ? p : null);
+    })();
+    return () => {
+      alive = false;
+    };
+    // getPerson is re-created on every store change; the inputs that matter are listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, ai?.enabled, profileSig]);
+
+  // Changing the look → back to 2D. A cached render of the new look is picked up without calling the API.
+  const look = lookVersion(sel);
+  lookRef.current = look;
+  useEffect(() => {
+    setView("2d");
+    setAiImg(null);
+    const its = selItems(sel);
+    if (!ai?.enabled || !person || its.length < 2) return;
+    let alive = true;
+    const t = setTimeout(() => {
+      getTryOn(cacheKey(person.id, its, ai.model))
+        .then((r) => alive && r && setAiImg(r))
+        .catch(() => {});
+    }, 200);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [look, person, ai]);
+
+  const tryOn = async () => {
+    if (!ai?.enabled || busy) return;
+    if (aiImg) {
+      setView("ai");
+      return;
+    }
+    const its = selItems(sel);
+    const startLook = look;
+    try {
+      let p = person;
+      if (!p) {
+        // First run without a profile photo: generate the default model once and keep it.
+        setBusy("model");
+        const gender = prefs.gender === "none" ? null : prefs.gender;
+        const m = await callTryOn({ mode: "model", profile: { gender, height_cm: prefs.height_cm, body_type: prefs.body_type } });
+        p = await setPerson("model", m.blob, profileSig);
+        if (!p) throw new Error("기본 모델 이미지를 저장하지 못했어요");
+        setPersonRef(p);
+      }
+      const key = cacheKey(p.id, its, ai.model);
+      let r = await getTryOn(key);
+      if (!r) {
+        setBusy("tryon");
+        const [garments, personImg] = await Promise.all([garmentRefs(sel), urlToRef(p.url, 1280)]);
+        const res = await callTryOn({ mode: "tryon", person: personImg, garments });
+        r = await putTryOn(key, res.blob, { person_id: p.id, item_ids: its.map((i) => i.id), model: res.model || ai.model, cost_usd: res.costUsd });
+      }
+      if (lookRef.current === startLook) {
+        setAiImg(r);
+        setView("ai");
+      } else toast("이전 조합의 착용 이미지는 저장해 뒀어요");
+    } catch (e) {
+      setView("2d");
+      toast(e instanceof TryOnError ? e.ko : `착용 이미지를 만들지 못했어요: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   // Keep the selected card centred in the horizontal strip (without scrolling the page).
   useEffect(() => {
@@ -207,7 +295,7 @@ function Builder() {
   // Keyboard: ←/→ cycle · ↑/↓ slot · R random · L lock
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest("input,textarea,select") || saveOpen || optsOpen) return;
+      if ((e.target as HTMLElement)?.closest("input,textarea,select") || saveOpen) return;
       if (e.key === "ArrowRight") step(1);
       else if (e.key === "ArrowLeft") step(-1);
       else if (e.key === "ArrowDown") setActive(ORDER[Math.min(ORDER.length - 1, ORDER.indexOf(active) + 1)]);
@@ -235,7 +323,7 @@ function Builder() {
         <h1 className="display mb-5 text-[20px]">OUTFIT BUILDER</h1>
         <Empty
           title="조합할 옷이 부족해요"
-          body="상의와 하의를 한 벌씩만 등록해도 3D 아바타로 코디를 시작할 수 있어요."
+          body="상의와 하의를 한 벌씩만 등록해도 룩북으로 코디를 시작할 수 있어요."
           action={
             <Link href="/add" className="btn btn-dark">
               <IconPlus width={16} height={16} /> 옷 추가
@@ -249,9 +337,9 @@ function Builder() {
 
   /* ─────────── pieces ─────────── */
 
-  // The look, as labels over the 3D stage: [BLACK TEE] [BEIGE PANTS] …
+  // The look, as labels over the stage: [BLACK TEE] [BEIGE PANTS] … (right side; the outfit stands on the left)
   const lookOverlay = (
-    <div className="pointer-events-none absolute left-2.5 top-2.5 flex max-w-[62%] flex-col items-start gap-1 lg:left-3 lg:top-3">
+    <div ref={badgesRef} className="pointer-events-none absolute right-2.5 top-2.5 z-40 flex max-w-[44%] flex-col items-end gap-1 lg:right-3 lg:top-3">
       {ORDER.filter((s) => sel[s]).map((s) => (
         <button
           key={s}
@@ -268,13 +356,42 @@ function Builder() {
     </div>
   );
 
+  const showAi = view === "ai" && !!aiImg;
   const stage = (
-    <AvatarViewer
-      body={bodyParams}
-      outfit={sel}
-      overlay={lookOverlay}
-      className="h-[min(58dvh,540px)] min-h-[360px] lg:h-[min(80dvh,760px)]"
-    />
+    <div className="relative h-[min(62dvh,560px)] min-h-[380px] overflow-hidden rounded-lg bg-stage lg:h-[min(80dvh,760px)]">
+      {showAi ? (
+        <img key={aiImg.key} src={aiImg.url} alt="AI 착용 이미지" className="stage-in absolute inset-0 h-full w-full object-contain" />
+      ) : (
+        <LookbookStage sel={sel} groups={groups} locked={locked} active={active} onActive={setActive} onStep={stepSlot} rightInset={badgesH} />
+      )}
+
+      {lookOverlay}
+
+      {aiImg && !busy && (
+        <div className="absolute left-2.5 top-2.5 z-40 flex overflow-hidden rounded-full border border-line bg-paper/90 p-0.5 shadow-sm backdrop-blur lg:left-3 lg:top-3">
+          {(["2d", "ai"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`rounded-full px-3 py-1 text-[11px] font-bold tracking-[0.06em] transition ${view === v ? "bg-ink text-paper" : "text-ink-2"}`}
+            >
+              {v === "2d" ? "2D" : "AI"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {busy && (
+        <div className="absolute inset-0 z-50 grid place-items-center bg-stage/80 backdrop-blur-[2px]">
+          <div className="shimmer absolute inset-0" />
+          <div className="relative flex flex-col items-center gap-3 px-6 text-center">
+            <div className="h-[46%] min-h-[160px] w-[120px] rounded-[40%_40%_12%_12%/24%_24%_8%_8%] bg-card-2" />
+            <p className="text-[13px] font-semibold">{busy === "model" ? "기본 모델 만드는 중… (처음 한 번만)" : "착용 이미지 생성 중… (10~20초)"}</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 
   const categoryTabs = (
@@ -333,9 +450,6 @@ function Builder() {
         {locked.has(active) ? <IconLock width={13} height={13} strokeWidth={2} /> : <IconUnlock width={13} height={13} strokeWidth={2} />}
         {locked.has(active) ? "고정됨" : "고정"}
       </button>
-      <button aria-label="아바타 옵션" onClick={() => setOptsOpen(true)} className="grid h-8 w-8 place-items-center rounded-md border border-line">
-        <IconMore width={18} height={18} />
-      </button>
     </div>
   );
 
@@ -372,9 +486,15 @@ function Builder() {
           </div>
         )}
       </div>
-      <button className="btn btn-dark flex-1" disabled={count < 2} onClick={tryOn}>
-        <IconSparkle width={16} height={16} /> AI TRY-ON
-      </button>
+      {ai && !ai.enabled ? (
+        <p className="flex flex-1 items-center justify-center rounded-md border border-dashed border-line-2 px-2 text-center text-[11.5px] leading-snug text-mute">
+          AI 착용은 GEMINI_API_KEY 설정 필요
+        </p>
+      ) : (
+        <button className="btn btn-dark flex-1" disabled={!ai || count < 2 || !!busy} onClick={tryOn}>
+          <IconSparkle width={16} height={16} /> {busy ? "생성 중…" : aiImg && view !== "ai" ? "AI 보기" : "AI TRY-ON"}
+        </button>
+      )}
     </div>
   );
 
@@ -460,7 +580,7 @@ function Builder() {
         </button>
       </div>
 
-      {/* One 3D stage (one WebGL context) for every breakpoint.
+      {/* One stage for every breakpoint.
           Mobile: stage → tabs → strip → actions · Desktop: stage | wardrobe panel */}
       <div className="lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:gap-5">
         {stage}
@@ -493,7 +613,7 @@ function Builder() {
           <div className="space-y-3 border-t border-line p-3">
             {selectedRow}
             {actions}
-            <p className="text-[10.5px] text-mute">← → 옷 변경 · ↑ ↓ 카테고리 · R 랜덤 · L 고정 · 드래그 회전 · 휠 줌</p>
+            <p className="text-[10.5px] text-mute">← → 옷 변경 · ↑ ↓ 카테고리 · R 랜덤 · L 고정 · 무대에서 좌우로 넘기기</p>
           </div>
         </div>
 
@@ -501,35 +621,23 @@ function Builder() {
         <div className="hidden self-start lg:mt-5 lg:block">{comboLine}</div>
       </div>
 
-      {/* avatar options */}
-      <Sheet open={optsOpen} onClose={() => setOptsOpen(false)} title="아바타 옵션">
-        <div className="py-2">
-          <b className="block text-[14px] font-semibold">체형</b>
-          <p className="text-[12px] text-mute">키는 프로필의 신장({bodyParams.height}cm)을 사용해요. 코디와 함께 저장돼요.</p>
-          <div className="mt-3 flex gap-1.5">
-            {BODIES.map((b) => (
-              <button key={b.key} className="chip" data-on={render.body === b.key} onClick={() => setRender({ ...render, body: b.key })}>
-                {b.ko}
-              </button>
-            ))}
-          </div>
-        </div>
-      </Sheet>
-
       <SaveModal
         open={saveOpen}
         onClose={() => setSaveOpen(false)}
         sel={sel}
         render={render}
+        photo={aiImg?.url ?? null}
         loaded={loaded}
         duplicate={duplicate}
         tags={[...tags.styles.map((x) => STYLES.find((st) => st.key === x.toLowerCase())?.ko ?? x), ...(tags.tone ? [toneKo(tags.tone)!] : [])]}
         onSave={async (meta, mode) => {
           const refs = ORDER.filter((s) => sel[s]).map((slot) => ({ slot, wardrobe_item_id: sel[slot]!.id }));
+          // AI render of this look → MY OUTFITS thumbnail. Same pieces as the loaded outfit → keep its render.
+          const tryon_key = aiImg?.key ?? (loaded && loadedSig === signature(sel) ? loaded.tryon_key : null);
           const o =
             mode === "update" && loaded
-              ? await updateOutfit(loaded.id, { ...meta, items: refs, render })
-              : await saveOutfit({ ...meta, source, items: refs, render });
+              ? await updateOutfit(loaded.id, { ...meta, items: refs, render, tryon_key })
+              : await saveOutfit({ ...meta, source, items: refs, render, tryon_key });
           setLoaded(o);
           setSaveOpen(false);
           return o;
@@ -556,6 +664,7 @@ function SaveModal({
   onClose,
   sel,
   render,
+  photo,
   loaded,
   duplicate,
   tags,
@@ -566,7 +675,8 @@ function SaveModal({
   open: boolean;
   onClose: () => void;
   sel: Selection;
-  render: RenderOptions;
+  render: RenderOptions | null;
+  photo: string | null;
   loaded: Outfit | null;
   duplicate: boolean;
   tags: string[];
@@ -617,7 +727,7 @@ function SaveModal({
     <Sheet open={open} onClose={onClose} title="코디 저장하기" wide>
       <div className="flex gap-4">
         <div className="w-[108px] shrink-0 sm:w-[132px]">
-          <OutfitBoard sel={sel} render={render} aspect="aspect-[3/4.4]" />
+          <OutfitBoard sel={sel} render={render} photo={photo} aspect="aspect-[3/4.4]" />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           <label className="block">

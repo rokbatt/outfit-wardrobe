@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { colorDef } from "@/lib/taxonomy";
-import { IconClose } from "./icons";
+import { IconChevronL, IconChevronR, IconClose } from "./icons";
 
 export function ChipGroup<T extends string>({
   options,
@@ -18,25 +18,84 @@ export function ChipGroup<T extends string>({
   wrap?: boolean;
 }) {
   const sel = Array.isArray(value) ? value : value ? [value] : [];
+  const chips = options.map((o) => {
+    const on = sel.includes(o.key);
+    return (
+      <button
+        type="button"
+        key={o.key}
+        className="chip shrink-0"
+        data-on={on}
+        onClick={() => {
+          if (multiple) onChange(on ? sel.filter((x) => x !== o.key) : [...sel, o.key]);
+          else onChange(on ? null : o.key);
+        }}
+      >
+        {o.ko}
+      </button>
+    );
+  });
+  if (wrap) return <div className="flex flex-wrap gap-2">{chips}</div>;
+  return <ScrollRow>{chips}</ScrollRow>;
+}
+
+/**
+ * One horizontal row that scrolls sideways: a slim scrollbar, arrow buttons at the edges while there is
+ * more to see, and the mouse wheel scrolls it (a mouse can't swipe).
+ */
+export function ScrollRow({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ left: false, right: false });
+
+  const update = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    setEdge({ left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+  }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    // vertical wheel → sideways, only while the row can still move that way (so the page keeps scrolling otherwise)
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if ((e.deltaY < 0 && el.scrollLeft <= 0) || (e.deltaY > 0 && el.scrollLeft >= max)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("wheel", onWheel);
+    };
+  }, [update]);
+
+  const step = (d: 1 | -1) => ref.current?.scrollBy({ left: d * ref.current.clientWidth * 0.7, behavior: "smooth" });
+  const arrow = "absolute top-0 z-10 flex h-9 w-9 items-center from-paper via-paper/90 to-transparent";
+
   return (
-    <div className={`flex gap-2 ${wrap ? "flex-wrap" : "no-scrollbar -mx-4 overflow-x-auto px-4"}`}>
-      {options.map((o) => {
-        const on = sel.includes(o.key);
-        return (
-          <button
-            type="button"
-            key={o.key}
-            className="chip"
-            data-on={on}
-            onClick={() => {
-              if (multiple) onChange(on ? sel.filter((x) => x !== o.key) : [...sel, o.key]);
-              else onChange(on ? null : o.key);
-            }}
-          >
-            {o.ko}
-          </button>
-        );
-      })}
+    <div className="relative">
+      <div ref={ref} onScroll={update} className="scroll-row flex gap-2 overflow-x-auto pb-2">
+        {children}
+      </div>
+      {edge.left && (
+        <button type="button" aria-label="왼쪽으로 넘기기" onClick={() => step(-1)} className={`${arrow} left-0 justify-start bg-gradient-to-r`}>
+          <span className="grid h-7 w-7 place-items-center rounded-full border border-line bg-paper shadow-sm">
+            <IconChevronL width={14} height={14} />
+          </span>
+        </button>
+      )}
+      {edge.right && (
+        <button type="button" aria-label="오른쪽으로 넘기기" onClick={() => step(1)} className={`${arrow} right-0 justify-end bg-gradient-to-l`}>
+          <span className="grid h-7 w-7 place-items-center rounded-full border border-line bg-paper shadow-sm">
+            <IconChevronR width={14} height={14} />
+          </span>
+        </button>
+      )}
     </div>
   );
 }

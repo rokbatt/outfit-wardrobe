@@ -12,12 +12,24 @@ export const categoryLabel = (c: Category) => CATEGORIES.find((x) => x.key === c
 
 export const SUBCATEGORIES: Record<Category, string[]> = {
   top: ["반팔 티셔츠", "긴팔 티셔츠", "셔츠", "니트", "스웨트셔츠", "후드", "폴로", "민소매"],
-  bottom: ["데님", "슬랙스", "치노 팬츠", "와이드 팬츠", "카고 팬츠", "조거", "쇼츠", "스커트"],
+  bottom: ["데님", "슬랙스", "치노 팬츠", "와이드 팬츠", "카고 팬츠", "조거", "쇼츠", "버뮤다 팬츠", "스커트"],
   outer: ["블루종", "자켓", "블레이저", "코트", "패딩", "가디건", "바람막이", "플리스"],
   shoes: ["스니커즈", "러닝화", "로퍼", "더비", "부츠", "샌들", "슬리퍼"],
   acc: ["모자", "가방", "벨트", "시계", "안경", "머플러", "양말"],
   etc: ["원피스", "셋업", "트레이닝", "기타"],
 };
+
+/** Bottoms whose hem length varies enough to ask for it. */
+export const hasHemLength = (category: Category, subcategory: string) => category === "bottom" && /버뮤다|쇼츠|반바지/.test(subcategory);
+
+/** Where a shorts / bermuda hem falls. cm = waist → hem, on the lookbook's 104 cm waist → floor leg. */
+export const HEM_LENGTHS = [
+  { key: "above_knee", ko: "무릎 위", sub: "5부", cm: 52 },
+  { key: "knee", ko: "무릎 살짝 덮음", sub: "6부", cm: 60 },
+  { key: "below_knee", ko: "무릎 아래", sub: "6.5부", cm: 67 },
+  { key: "mid_calf", ko: "종아리 중간", sub: "7부", cm: 75 },
+  { key: "low_calf", ko: "종아리 아래", sub: "8부", cm: 84 },
+];
 
 /** Slot shown in Outfit Builder, in board order. */
 export const SLOTS: { key: Slot; ko: string; en: string; category: Category }[] = [
@@ -81,6 +93,7 @@ export const FITS = [
   { key: "wide", ko: "와이드" },
   { key: "straight", ko: "스트레이트" },
   { key: "tapered", ko: "테이퍼드" },
+  { key: "cropped", ko: "크롭" },
 ];
 
 export const STYLES = [

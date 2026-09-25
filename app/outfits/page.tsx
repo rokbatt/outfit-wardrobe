@@ -66,7 +66,7 @@ export default function OutfitsPage() {
               return (
                 <div key={o.id} className="rise">
                   <Link href={`/outfit?outfit=${o.id}`}>
-                    <OutfitBoard sel={selFromRefs(o.items, itemById)} render={o.render} />
+                    <OutfitBoard sel={selFromRefs(o.items, itemById)} render={o.render} photo={o.tryon_url} />
                   </Link>
                   <div className="mt-2 flex items-start justify-between gap-2 px-0.5">
                     <div className="min-w-0">

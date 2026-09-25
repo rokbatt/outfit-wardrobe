@@ -132,6 +132,11 @@ select.field {
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
+/* slim, always-visible bar for sideways chip rows (ScrollRow) */
+.scroll-row { scrollbar-width: thin; scrollbar-color: var(--color-line-2) transparent; }
+.scroll-row::-webkit-scrollbar { height: 4px; }
+.scroll-row::-webkit-scrollbar-thumb { background: var(--color-line-2); border-radius: 999px; }
+.scroll-row::-webkit-scrollbar-track { background: transparent; }
 
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
@@ -144,6 +149,10 @@ select.field {
   mask-image: radial-gradient(ellipse 72% 70% at 50% 50%, #000 62%, transparent 100%);
 }
 .garment-cutout { filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.12)); }
+/* 2D lookbook stage: a very light shadow under each piece (not on un-cut photos: a filter would isolate their multiply blend). */
+.lookbook-piece { filter: drop-shadow(0 7px 9px rgba(0, 0, 0, 0.08)); }
+@keyframes stage-in { from { opacity: 0; transform: translateY(4px) scale(0.985); } to { opacity: 1; transform: none; } }
+.stage-in { animation: stage-in 0.28s var(--ease-out-quint) both; }
 
 .checker {
   background-color: #fff;

@@ -26,11 +26,28 @@ ANTHROPIC_VISION_MODEL=claude-haiku-4-5-20251001   # 기본값, 더 정확히: c
 - 결과는 tool-use 스키마로 강제되고, 서버에서 taxonomy 밖 값은 버립니다(`app/api/analyze/route.ts`).
 - AI가 채운 필드에는 "AI 추정 · 수정 가능" 표시. 사용자가 먼저 건드린 필드는 AI가 덮어쓰지 않습니다.
 
+## AI TRY-ON 켜기 (선택)
+
+Outfit Builder의 기본 화면은 누끼 사진을 쌓은 **2D 룩북**이고, 사실적인 착용 모습은 **AI TRY-ON 버튼을 누를 때만** Gemini 이미지 모델로 생성합니다.
+
+`.env.local`
+```
+GEMINI_API_KEY=...                         # https://aistudio.google.com/apikey (유료 티어 필요)
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-image  # 기본값. 2.5 Flash Image는 2026-10-02 종료
+```
+- 키가 없으면 버튼 대신 "AI 착용은 GEMINI_API_KEY 설정 필요" 안내만 표시됩니다.
+- 기준 인물: 프로필의 **내 전신 사진** → 없으면 성별·키·체형에 맞춘 **기본 모델**을 처음 한 번 생성해 저장 후 재사용(설정을 바꾸면 다시 생성).
+- 한 번 호출에 기준 인물 1장 + 현재 코디의 누끼(카테고리 라벨 포함)를 함께 보냅니다. 사진 없는 옷은 텍스트 설명으로 전달.
+- 캐시: (기준 인물 + 정렬된 옷 id + 렌더 옵션·모델) 조합이 같으면 다시 호출하지 않습니다. 저장은 Repo 경유 — 로컬은 IndexedDB, Supabase는 `wardrobe/{user_id}/tryon/…`.
+- 비용: 1K 이미지 1장 ≈ $0.067 + 입력 토큰. 호출마다 서버 콘솔에 `[tryon] … ≈ $0.07` 로그가 남습니다.
+- 요청은 stateless `generateContent` 로 보내 Google 쪽에 대화 기록을 남기지 않습니다.
+
 ## Supabase 연결
 
 1. Supabase 프로젝트 생성 → SQL Editor에서 `supabase/schema.sql` 실행
 2. Authentication → Providers → **Anonymous sign-ins 허용**
-3. 이미 v1 스키마를 적용했다면 `supabase/migrations/002_mannequin.sql` 만 추가 실행 (새 프로젝트는 `schema.sql` 에 포함)
+3. 이미 v1 스키마를 적용했다면 `supabase/migrations/002_mannequin.sql`, `003_tryon.sql` 을 차례로 추가 실행 (새 프로젝트는 `schema.sql` 에 포함)
+   - 003 미적용 DB에서도 앱은 동작합니다. AI 착용 이미지가 세션에만 유지되고 전신 사진 업로드가 비활성화될 뿐입니다.
 4. `.env.local`
    ```
    NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
@@ -52,14 +69,16 @@ app/
   add/                   옷 추가 — 촬영/여러 장 선택 → 정리 → 분석 → 확인 → 저장(연속)
   wardrobe/              옷장 — 카테고리 탭 · 색/계절/스타일/브랜드 필터 · 정렬 · 잠든 옷
   wardrobe/[id]/         상세 — 착용 통계 · 편집/사진 교체 · 이 옷으로 만든 조합
-  outfit/                OUTFIT BUILDER — 3D 아바타(R3F) · 슬롯 고정 · 랜덤 · 저장 · AI TRY-ON
+  outfit/                OUTFIT BUILDER — 2D 룩북(누끼 스택·줄별 스와이프) · 고정 · 랜덤 · 저장 · AI TRY-ON
   outfits/               MY OUTFITS — 상황별 · Wear this
   ai/                    Stylist — 조건 → 3가지 룩 (현재 규칙 엔진, Phase 2에 Claude 연결)
   profile/               선호 설정 · 백업 내보내기
   api/analyze/           Claude vision 태깅
+  api/tryon/             Gemini 이미지 — 기본 모델 생성 · 착용 이미지 생성
 lib/
   repo/                  Repo 인터페이스 + LocalRepo(IndexedDB) + SupabaseRepo
   styling.ts             규칙 기반 조합 점수 (AI 호출 0)
+  tryon.ts               AI 착용 — 캐시 키 · 참고 이미지 준비 · /api/tryon 호출
   image.ts               리사이즈 · WebP · 대표색 추출
   taxonomy.ts            카테고리/색/스타일 사전
 supabase/schema.sql      테이블 · 트리거 · RLS · Storage 정책

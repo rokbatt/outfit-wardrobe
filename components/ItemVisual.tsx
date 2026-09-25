@@ -5,6 +5,7 @@ import { daysSince } from "@/lib/styling";
 import { categoryLabel } from "@/lib/taxonomy";
 import type { WardrobeItem } from "@/lib/types";
 import { GarmentGlyph } from "./GarmentGlyph";
+import { IconCheck } from "./icons";
 
 /**
  * The garment itself: transparent cutout → original photo → (only for photo-less demo items) placeholder.
@@ -40,11 +41,14 @@ export function ItemCard({
   selected = false,
   onClick,
   size = "md",
+  checkable = false,
 }: {
   item: WardrobeItem;
   href?: string;
   meta?: "wear" | "sub" | "none";
   selected?: boolean;
+  /** show a check circle (multi-select mode) */
+  checkable?: boolean;
   onClick?: () => void;
   size?: "xs" | "sm" | "md";
 }) {
@@ -58,6 +62,15 @@ export function ItemCard({
         }`}
       >
         <ItemVisual item={item} className="transition-transform duration-300 group-hover:scale-[1.03]" />
+        {checkable && (
+          <span
+            className={`absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full border-[1.5px] ${
+              selected ? "border-ink bg-ink text-paper" : "border-line-2 bg-paper/80"
+            }`}
+          >
+            {selected && <IconCheck width={12} height={12} strokeWidth={2.6} />}
+          </span>
+        )}
       </div>
       {meta !== "none" && (
         <div className="mt-1.5 px-0.5">

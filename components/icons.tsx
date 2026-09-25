@@ -46,6 +46,9 @@ export const IconCamera = (p: SVGProps<SVGSVGElement>) => (
 export const IconImage = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><rect x="4" y="4.5" width="16" height="15" rx="1.5" /><circle cx="9" cy="9.5" r="1.5" /><path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5" /></svg>
 );
+export const IconClipboard = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><rect x="5" y="5" width="14" height="16" rx="1.5" /><path d="M9 5V3.5h6V5" /><path d="M9 11h6M9 15h4" /></svg>
+);
 export const IconClose = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M6 6l12 12M18 6 6 18" /></svg>
 );

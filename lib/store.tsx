@@ -4,8 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { LocalRepo } from "./repo/local";
 import { SupabaseRepo } from "./repo/supabase";
 import { DEFAULT_PREFS, type CutoutInput, type Repo } from "./repo/types";
+import { importLocalInto, pendingLocalItems } from "./repo/migrate";
 import { SAMPLE_ITEMS, SAMPLE_WEARS } from "./sample";
-import type { NewOutfit, NewWardrobeItem, Outfit, Preferences, WardrobeItem, WearLog } from "./types";
+import type { NewOutfit, NewWardrobeItem, Outfit, PersonImage, PersonKind, Preferences, TryOnMeta, TryOnRender, WardrobeItem, WearLog } from "./types";
 
 interface Ctx {
   ready: boolean;
@@ -21,6 +22,7 @@ interface Ctx {
   setCutout(id: string, cutout: CutoutInput): Promise<WardrobeItem>;
   updateItem(id: string, patch: Partial<NewWardrobeItem>, image?: Blob | null): Promise<WardrobeItem>;
   deleteItem(id: string): Promise<void>;
+  deleteItems(ids: string[]): Promise<void>;
   saveOutfit(input: NewOutfit): Promise<Outfit>;
   updateOutfit(id: string, patch: Partial<NewOutfit>): Promise<Outfit>;
   deleteOutfit(id: string): Promise<void>;
@@ -28,6 +30,21 @@ interface Ctx {
   undoWear(logId: string): Promise<void>;
   savePrefs(p: Preferences): Promise<void>;
   seedSample(): Promise<void>;
+
+  // AI try-on assets (lib/tryon)
+  getPerson(kind: PersonKind): Promise<PersonImage | null>;
+  setPerson(kind: PersonKind, blob: Blob | null, sig?: string | null): Promise<PersonImage | null>;
+  getTryOn(key: string): Promise<TryOnRender | null>;
+  putTryOn(key: string, image: Blob, meta: TryOnMeta): Promise<TryOnRender>;
+
+  // Supabase account + moving the on-device wardrobe over (all no-ops / null on the local backend)
+  account: { id: string; email: string | null; anonymous: boolean } | null;
+  /** items on this device not yet copied to the Supabase account */
+  localPending: number;
+  importLocal(onProgress?: (done: number, total: number) => void): Promise<void>;
+  linkEmail(email: string, password: string): Promise<"linked" | "confirm">;
+  signIn(email: string, password: string): Promise<void>;
+  signOut(): Promise<void>;
 
   toast(msg: string, action?: { label: string; run: () => void }): void;
 }
@@ -57,6 +74,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [logs, setLogs] = useState<WearLog[]>([]);
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS);
   const [toastState, setToast] = useState<ToastState>(null);
+  const [account, setAccount] = useState<Ctx["account"]>(null);
+  const [localPending, setLocalPending] = useState(0);
 
   const repo = () => {
     if (!repoRef.current) throw new Error("repo not ready");
@@ -80,6 +99,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await r.init();
         repoRef.current = r;
         await refresh();
+        if (r instanceof SupabaseRepo) {
+          setAccount(await r.accountInfo());
+          // anything still on this device (IndexedDB) that this account doesn't have yet?
+          pendingLocalItems(r.account).then(setLocalPending, () => setLocalPending(0));
+        }
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -126,6 +150,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       async deleteItem(id) {
         await repo().deleteItem(id);
         await refresh();
+      },
+      async deleteItems(ids) {
+        // one at a time: each delete also rewrites the outfits that contain the item
+        try {
+          for (const id of ids) await repo().deleteItem(id);
+        } finally {
+          await refresh();
+        }
       },
       async saveOutfit(input) {
         const o = await repo().createOutfit(input);
@@ -175,9 +207,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         await refresh();
       },
+      getPerson: (kind) => repo().getPerson(kind),
+      setPerson: (kind, blob, sig) => repo().setPerson(kind, blob, sig),
+      getTryOn: (key) => repo().getTryOn(key),
+      putTryOn: (key, image, meta) => repo().putTryOn(key, image, meta),
+      account,
+      localPending,
+      async importLocal(onProgress) {
+        const r = repo();
+        if (!(r instanceof SupabaseRepo)) return;
+        await importLocalInto(r, r.account, onProgress);
+        await refresh();
+        setLocalPending(await pendingLocalItems(r.account));
+      },
+      async linkEmail(email, password) {
+        const r = repo();
+        if (!(r instanceof SupabaseRepo)) throw new Error("Supabase가 연결되어 있지 않아요");
+        const res = await r.linkEmail(email, password);
+        setAccount(await r.accountInfo());
+        return res;
+      },
+      async signIn(email, password) {
+        const r = repo();
+        if (!(r instanceof SupabaseRepo)) throw new Error("Supabase가 연결되어 있지 않아요");
+        await r.signIn(email, password);
+        window.location.reload(); // start over on the signed-in account
+      },
+      async signOut() {
+        const r = repo();
+        if (r instanceof SupabaseRepo) await r.signOut();
+        window.location.reload();
+      },
       toast,
     };
-  }, [ready, error, items, outfits, logs, prefs, refresh, toast]);
+  }, [ready, error, items, outfits, logs, prefs, refresh, toast, account, localPending]);
 
   return (
     <StoreCtx.Provider value={value}>
